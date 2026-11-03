@@ -77,6 +77,45 @@ paths:
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
 
+  /api/config:
+    get:
+      tags: [System]
+      operationId: getServiceConfig
+      summary: 获取公共服务配置及地址规则
+      description: |
+        公开非机密的服务部署信息，供静态前端或外部客户端自适应域名与保留策略。
+        不查询 D1 或第三方服务，不包含任何私密凭据。
+        不接受查询参数。此端点在 /api/config 下，非 /api/v1。
+      responses:
+        '200':
+          description: 返回公共服务配置。
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+            Access-Control-Allow-Origin:
+              $ref: '#/components/headers/PublicOrigin'
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceConfigResponse'
+              examples:
+                serviceConfig:
+                  $ref: '#/components/examples/ServiceConfig'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '413':
+          $ref: '#/components/responses/RequestTooLarge'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
   /api/v1/addresses/random:
     get:
       tags: [Addresses]
@@ -648,6 +687,40 @@ components:
             - $ref: '#/components/schemas/Cursor'
             - type: 'null'
           description: 查询时还有更旧的匹配邮件则返回游标，否则为 null。
+    AddressPolicy:
+      type: object
+      required: [minLength, maxLength, allowedCharacters]
+      properties:
+        minLength:
+          type: integer
+          description: 邮箱名最短 ASCII 字符数。
+          example: 1
+        maxLength:
+          type: integer
+          description: 邮箱名最长 ASCII 字符数。
+          example: 64
+        allowedCharacters:
+          type: string
+          description: 允许字符说明。
+          example: letters, digits, dot, underscore, hyphen
+    ServiceConfigResponse:
+      type: object
+      required: [mailDomain, webHostname, retentionSeconds, addressPolicy]
+      properties:
+        mailDomain:
+          type: string
+          description: 当前部署所使用的邮件收件域名，例如 cottage.dpdns.org。
+          example: cottage.dpdns.org
+        webHostname:
+          type: string
+          description: 当前部署所使用的 Web 与 API 主机名，例如 inbox.cottage.dpdns.org。
+          example: inbox.cottage.dpdns.org
+        retentionSeconds:
+          type: integer
+          description: 邮件自接收起的保留时间（秒），固定为 604800（7 天）。
+          example: 604800
+        addressPolicy:
+          $ref: '#/components/schemas/AddressPolicy'
     HealthResponse:
       type: object
       required: [status, service, apiVersion, serverTime]
@@ -901,6 +974,15 @@ components:
               $ref: '#/components/examples/ServiceUnavailable'
 
   examples:
+    ServiceConfig:
+      value:
+        mailDomain: cottage.dpdns.org
+        webHostname: inbox.cottage.dpdns.org
+        retentionSeconds: 604800
+        addressPolicy:
+          minLength: 1
+          maxLength: 64
+          allowedCharacters: letters, digits, dot, underscore, hyphen
     Healthy:
       value:
         status: ok

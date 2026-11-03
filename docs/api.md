@@ -65,6 +65,7 @@ X-Content-Type-Options: nosniff
 | 方法   | 路径                                | 查询参数                                                         | 成功响应                    |
 | ------ | ----------------------------------- | ---------------------------------------------------------------- | --------------------------- |
 | GET    | `/api/health`                       | 无                                                               | `200 HealthResponse`        |
+| GET    | `/api/config`                       | 无                                                               | `200 ServiceConfigResponse` |
 | GET    | `/api/v1/addresses/random`          | 无                                                               | `200 RandomAddressResponse` |
 | GET    | `/api/v1/mailboxes/{name}/messages` | `since`、`fromDomain`、`subject`、`dmarcPass`、`limit`、`cursor` | `200 MessageListResponse`   |
 | GET    | `/api/v1/messages/{id}`             | 无                                                               | `200 MessageResponse`       |
@@ -73,7 +74,7 @@ X-Content-Type-Options: nosniff
 
 不存在创建邮箱、邮箱过期、用户鉴权、附件下载或全局管理清理接口。下面的请求地址与数据均为合同示例；当前生产实例已经上线并通过真实邮件验收。
 
-## 4. 服务时间与随机地址
+## 4. 服务时间、公共配置与随机地址
 
 ### GET /api/health
 
@@ -87,6 +88,31 @@ X-Content-Type-Options: nosniff
   "serverTime": 1793671200000
 }
 ```
+
+### GET /api/config
+
+返回当前部署的公共非机密配置，供客户端、前端自适应或外部监控读取。不查询数据库，不包含任何秘钥、Token 或密码。
+
+不接受查询参数。
+
+```json
+{
+  "mailDomain": "cottage.dpdns.org",
+  "webHostname": "inbox.cottage.dpdns.org",
+  "retentionSeconds": 604800,
+  "addressPolicy": {
+    "minLength": 1,
+    "maxLength": 64,
+    "allowedCharacters": "letters, digits, dot, underscore, hyphen"
+  }
+}
+```
+
+字段说明：
+- `mailDomain`：收件域名（例如 `cottage.dpdns.org`，自建时由 `easytmp.config.json` 决定）。
+- `webHostname`：Web 与 API 主机名（例如 `inbox.cottage.dpdns.org`）。
+- `retentionSeconds`：邮件接收后的保留秒数，固定为 604800（7 天）。
+- `addressPolicy`：邮箱名规则，最长 64 字符，仅允许字母、数字、点、下划线和连字符。
 
 ### GET /api/v1/addresses/random
 
@@ -462,6 +488,15 @@ export class EasyTmpClient {
 
   health() {
     return this.json<{ status: 'ok'; apiVersion: '1'; serverTime: number }>('/api/health');
+  }
+
+  config() {
+    return this.json<{
+      mailDomain: string;
+      webHostname: string;
+      retentionSeconds: number;
+      addressPolicy: { minLength: number; maxLength: number; allowedCharacters: string };
+    }>('/api/config');
   }
 
   randomAddress() {

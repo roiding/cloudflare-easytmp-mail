@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" fill="none">
+  <defs>
+    <linearGradient id="bgGrad" x1="16" y1="16" x2="112" y2="112" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#F6821F" />
+      <stop offset="100%" stop-color="#E25404" />
+    </linearGradient>
+    <linearGradient id="mailGrad" x1="28" y1="40" x2="100" y2="92" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="100%" stop-color="#F2F5F8" />
+    </linearGradient>
+    <filter id="shadow" x="12" y="14" width="104" height="104" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#A73800" flood-opacity="0.35" />
+    </filter>
+  </defs>
+
+  <!-- Squircle Base -->
+  <rect x="16" y="16" width="96" height="96" rx="24" fill="url(#bgGrad)" filter="url(#shadow)" />
+
+  <!-- Cloudflare Cloud Motif Accent (White silhouette, semi-transparent) -->
+  <path d="M78 44c0-3.3-2.7-6-6-6-2.6 0-4.8 1.7-5.6 4-.8-.4-1.7-.7-2.7-.7-3.3 0-6 2.7-6 6 0 .4 0 .7.1 1.1-2.9 1-5 3.8-5 7.1 0 4.1 3.4 7.5 7.5 7.5H78c3.3 0 6-2.7 6-6 0-2.8-1.9-5.1-4.5-5.8.3-1 .5-2.1.5-3.2z" fill="#FFFFFF" fill-opacity="0.22" />
+
+  <!-- Mail Envelope Body -->
+  <rect x="28" y="46" width="72" height="48" rx="8" fill="url(#mailGrad)" stroke="#FFFFFF" stroke-width="2" />
+
+  <!-- Envelope Flap Lines & Interior -->
+  <path d="M29 48l35 25 35-25" stroke="#F6821F" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M30 92l25-22" stroke="#CBD5E1" stroke-width="2" stroke-linecap="round" />
+  <path d="M98 92l-25-22" stroke="#CBD5E1" stroke-width="2" stroke-linecap="round" />
+
+  <!-- Fast/Temporary Sparkle Badge -->
+  <circle cx="88" cy="40" r="12" fill="#0EA5E9" stroke="#FFFFFF" stroke-width="2.5" />
+  <path d="M88 33v14M81 40h14" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" />
+</svg>
