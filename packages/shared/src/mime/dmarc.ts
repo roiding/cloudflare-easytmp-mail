@@ -3,7 +3,7 @@ export interface RawHeader {
   value: string;
 }
 
-const CLOUDFLARE_AUTHSERV_REGEX = /^(?:[a-z0-9-]+\.)*cloudflare(?:\.com)?$/i;
+const CLOUDFLARE_AUTHSERV_REGEX = /^mx\.cloudflare\.net$/i;
 const DMARC_PASS_REGEX = /(?:^|[;\s])dmarc\s*=\s*pass(?:\s|[;(]|$)/i;
 
 /**
@@ -47,7 +47,7 @@ export function parseRawHeaders(raw: string | Uint8Array | ArrayBuffer): RawHead
 
 /**
  * Validates a single Authentication-Results header value to ensure:
- * 1. The authserv-id corresponds to Cloudflare (e.g., mx.cloudflare.com).
+ * 1. The authserv-id corresponds strictly to Cloudflare Email Routing MTA (mx.cloudflare.net).
  * 2. The result parameters contain dmarc=pass.
  */
 export function isCloudflareDmarcPassHeader(headerValue: string): boolean {
@@ -76,7 +76,7 @@ export function isCloudflareDmarcPassHeader(headerValue: string): boolean {
  *    the email headers. Any prior or forged Authentication-Results headers from the sender
  *    or intermediate relays will appear after Cloudflare's header.
  * 2. Only the FIRST Authentication-Results header in header order is evaluated.
- * 3. The authserv-id must be Cloudflare's MTA (e.g. mx.cloudflare.com).
+ * 3. The authserv-id must strictly be Cloudflare's Email Routing MTA (mx.cloudflare.net).
  * 4. Strings in the email body or non-header parts are strictly ignored.
  */
 export function verifyCloudflareDmarc(

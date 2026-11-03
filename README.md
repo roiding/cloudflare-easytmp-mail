@@ -150,7 +150,7 @@ pnpm smoke-test --url http://localhost:8788  # 针对本地开发实例探测
 ## 业务与核心安全规则
 
 - **7 天不可变保留**：数据库 schema 强制实施 `CHECK (expires_at = received_at + 604800000)`，查询层与删除层严格校验 `expires_at > serverTime`，到期即不可读。
-- **严格 DMARC 认证**：只信任 Cloudflare MTA 注入的首个 `Authentication-Results` 头且验证其 `authserv-id`，任何来自发件人伪造的后续头、正文伪造头或非 Cloudflare 验证结果均判定为未通过。
+- **严格 DMARC 认证**：只信任 Cloudflare Email Routing MTA 注入的首个 `Authentication-Results` 头且严格验证其 `authserv-id` 为 `mx.cloudflare.net`（`/^mx\.cloudflare\.net$/i`），任何来自发件人伪造的后续头、正文伪造头或非 Cloudflare 验证结果均判定为未通过。
 - **游标防御**：解码时严格拒绝包含未知字段的 JSON 结构，严格校验 `since`、`fromDomain`、`subject`、`dmarcPass` 类型与范围，必须与查询过滤条件严格对齐。
 - **均匀随机邮箱**：采用 252 模截断丢弃法（Rejection Sampling），消除 256 对 36 字符集的模偏差，生成绝对均匀的 16 位密码学安全随机地址。
 - **权威对账与生命周期**：前端轮询每 3 秒获取最新页并与服务器集合对账，自动移除外部已删除或过期的邮件；页面不可见时彻底挂起定时器，恢复可见时立即刷新；单封删除仅在弹窗处确认一次，杜绝重复二次确认。

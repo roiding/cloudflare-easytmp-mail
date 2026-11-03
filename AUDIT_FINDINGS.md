@@ -53,7 +53,7 @@
 
 1. **严格 DMARC 认证与防伪造统一**：
    - **问题**：原 `packages/shared/src/mime/parser.ts` 循环扫描所有头，若发件人伪造注入第二个 `Authentication-Results` 或非 Cloudflare 认证头，会误判为 pass。
-   - **修复**：将严格 DMARC 校验逻辑提取至 `packages/shared/src/mime/dmarc.ts` 并由 `inbound-worker` 共享。仅提取邮件头边界（`\r\n\r\n` / `\n\n`）之前的 RFC 5322 标头；仅检验首个 `Authentication-Results` 标头；验证 `authserv-id` 必须为 Cloudflare MTA（`/^(?:[a-z0-9-]+\.)*cloudflare(?:\.com)?$/i`）；正文伪造串严格忽略。
+   - **修复**：将严格 DMARC 校验逻辑提取至 `packages/shared/src/mime/dmarc.ts` 并由 `inbound-worker` 共享。仅提取邮件头边界（`\r\n\r\n` / `\n\n`）之前的 RFC 5322 标头；仅检验首个 `Authentication-Results` 标头；验证 `authserv-id` 必须为 Cloudflare Email Routing 生产实际 MTA 标识（严格匹配 `/^mx\.cloudflare\.net$/i`）；正文伪造串严格忽略。
    - **新增测试**：在 `packages/shared/test/mime.test.ts` 补充 4 项攻击测试：首头伪造 pass、Cloudflare fail 后伪造 pass、正文注入伪造头、合法 Cloudflare pass，全部严格通过。
 
 2. **严格 Cursor 结构解码**：

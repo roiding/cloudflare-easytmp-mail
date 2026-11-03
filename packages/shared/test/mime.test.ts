@@ -11,7 +11,7 @@ describe('MIME Email Parsing & Strict Cloudflare DMARC Security', () => {
     const raw = `From: "Acme Service" <support@acme.com>
 To: user@cottage.dpdns.org
 Subject: Verify your email: 049281
-Authentication-Results: mx.cloudflare.com; dmarc=pass header.from=acme.com
+Authentication-Results: mx.cloudflare.net; dmarc=pass header.from=acme.com
 Return-Path: <bounces@acme.com>
 Content-Type: multipart/alternative; boundary="BOUNDARY"
 
@@ -79,16 +79,53 @@ Content-Type: text/html; charset=utf-8
     expect(result.htmlStatus).toBe('available');
   });
 
-  // Attack test 1: First Authentication-Results header is forged by attacker MTA
-  it('rejects forged first Authentication-Results from non-Cloudflare authserv-id even if dmarc=pass', async () => {
+  // Attack test 1a: First Authentication-Results header is forged by attacker MTA (attacker.com)
+  it('rejects forged first Authentication-Results from attacker.com even if dmarc=pass', async () => {
     const raw = `From: attacker@evil.com
 To: user@cottage.dpdns.org
 Subject: Phishing Attack
-Authentication-Results: mail.evil-relay.com; dmarc=pass header.from=evil.com
-Authentication-Results: mx.cloudflare.com; dmarc=pass
+Authentication-Results: attacker.com; dmarc=pass header.from=evil.com
+Authentication-Results: mx.cloudflare.net; dmarc=pass
 Content-Type: text/plain
 
 Fake email`;
+
+    const headers = parseRawHeaders(raw);
+    expect(verifyCloudflareDmarc(headers)).toBe(false);
+    expect(checkDmarcPassFromHeaders(headers)).toBe(false);
+
+    const parsed = await parseRawEmail(raw);
+    expect(parsed.dmarcPass).toBe(false);
+  });
+
+  // Attack test 1b: First Authentication-Results header uses deceptive subdomain suffix (mx.cloudflare.net.evil.example)
+  it('rejects deceptive authserv-id like mx.cloudflare.net.evil.example even if dmarc=pass', async () => {
+    const raw = `From: attacker@evil.example
+To: user@cottage.dpdns.org
+Subject: Subdomain Spoofing
+Authentication-Results: mx.cloudflare.net.evil.example; dmarc=pass header.from=evil.example
+Authentication-Results: mx.cloudflare.net; dmarc=pass
+Content-Type: text/plain
+
+Subdomain spoof email`;
+
+    const headers = parseRawHeaders(raw);
+    expect(verifyCloudflareDmarc(headers)).toBe(false);
+    expect(checkDmarcPassFromHeaders(headers)).toBe(false);
+
+    const parsed = await parseRawEmail(raw);
+    expect(parsed.dmarcPass).toBe(false);
+  });
+
+  // Attack test 1c: Old cloudflare.com authserv-id is strictly rejected
+  it('rejects legacy or non-matching mx.cloudflare.com authserv-id', async () => {
+    const raw = `From: user@example.com
+To: user@cottage.dpdns.org
+Subject: Legacy Authserv-id
+Authentication-Results: mx.cloudflare.com; dmarc=pass header.from=example.com
+Content-Type: text/plain
+
+Legacy domain email`;
 
     const headers = parseRawHeaders(raw);
     expect(verifyCloudflareDmarc(headers)).toBe(false);
@@ -103,8 +140,8 @@ Fake email`;
     const raw = `From: attacker@spoofed.com
 To: user@cottage.dpdns.org
 Subject: Spoofing Attempt
-Authentication-Results: mx.cloudflare.com; dmarc=fail (p=reject) header.from=spoofed.com
-Authentication-Results: mx.cloudflare.com; dmarc=pass header.from=spoofed.com
+Authentication-Results: mx.cloudflare.net; dmarc=fail (p=reject) header.from=spoofed.com
+Authentication-Results: mx.cloudflare.net; dmarc=pass header.from=spoofed.com
 Content-Type: text/plain
 
 Spoofed email body`;
@@ -126,7 +163,7 @@ Return-Path: <bounce@unknown.com>
 Content-Type: text/plain
 
 Here is the body.
-Authentication-Results: mx.cloudflare.com; dmarc=pass header.from=unknown.com
+Authentication-Results: mx.cloudflare.net; dmarc=pass header.from=unknown.com
 Some more body text.`;
 
     const headers = parseRawHeaders(raw);
@@ -139,7 +176,7 @@ Some more body text.`;
 
   // Legitimate test: Legitimate Cloudflare MTA first header with dmarc=pass
   it('accepts legitimate first Cloudflare Authentication-Results header with dmarc=pass', async () => {
-    const raw = `Authentication-Results: mx.cloudflare.com; dmarc=pass (p=reject sp=reject dis=none) header.from=legit.org
+    const raw = `Authentication-Results: mx.cloudflare.net; dmarc=pass (p=reject sp=reject dis=none) header.from=legit.org
 From: admin@legit.org
 To: user@cottage.dpdns.org
 Subject: Welcome

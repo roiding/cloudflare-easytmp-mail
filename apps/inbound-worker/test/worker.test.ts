@@ -56,7 +56,7 @@ function createMockEmailMessage(opts: MockMessageOptions) {
   return message;
 }
 
-const VALID_EMAIL_MIME = `Authentication-Results: mx.cloudflare.com; dmarc=pass
+const VALID_EMAIL_MIME = `Authentication-Results: mx.cloudflare.net; dmarc=pass
 From: "Test Sender" <sender@example.com>
 To: user@cottage.dpdns.org
 Subject: Verification Code: 049281
@@ -271,7 +271,7 @@ describe('Inbound Worker: Size Limits (Declared and Streaming)', () => {
     expect(msgOversized.getRejectedReason()).toBe('Email exceeds size limit of 1024 bytes');
 
     // Email of 500 bytes should pass the clamped 1024 limit (though might fail dmarc if missing)
-    const validSmall = `Authentication-Results: mx.cloudflare.com; dmarc=pass
+    const validSmall = `Authentication-Results: mx.cloudflare.net; dmarc=pass
 From: a@b.com
 To: user@cottage.dpdns.org
 Subject: Hi
@@ -289,7 +289,7 @@ Body`;
 describe('Inbound Worker: DMARC Trust Boundary & Anti-Spoofing', () => {
   it('accepts email with trusted Cloudflare Authentication-Results header', async () => {
     const db = createMockD1Database() as D1Database & { _records: Map<string, MessageRecord> };
-    const raw = `Authentication-Results: mx.cloudflare.com; dmarc=pass (p=reject dis=none) header.from=example.com
+    const raw = `Authentication-Results: mx.cloudflare.net; dmarc=pass (p=reject dis=none) header.from=example.com
 From: support@example.com
 To: user@cottage.dpdns.org
 Subject: Valid DMARC
@@ -307,7 +307,7 @@ Hello world.`;
 
   it('rejects email when Cloudflare Authentication-Results indicates dmarc=fail', async () => {
     const db = createMockD1Database() as D1Database & { _records: Map<string, MessageRecord> };
-    const raw = `Authentication-Results: mx.cloudflare.com; dmarc=fail (p=reject dis=reject) header.from=evil.com
+    const raw = `Authentication-Results: mx.cloudflare.net; dmarc=fail (p=reject dis=reject) header.from=evil.com
 From: support@evil.com
 To: user@cottage.dpdns.org
 Subject: Spoofed Mail
@@ -337,11 +337,27 @@ Phishing attack.`;
     expect(db._records.size).toBe(0);
   });
 
+  it('rejects email when authserv-id uses deceptive subdomain suffix (mx.cloudflare.net.evil.example)', async () => {
+    const db = createMockD1Database() as D1Database & { _records: Map<string, MessageRecord> };
+    const raw = `Authentication-Results: mx.cloudflare.net.evil.example; dmarc=pass
+From: attacker@evil.example
+To: user@cottage.dpdns.org
+Subject: Subdomain Spoof
+
+Deceptive authserv-id.`;
+
+    const msg = createMockEmailMessage({ to: 'user@cottage.dpdns.org', rawContent: raw });
+    await worker.email(msg, { DB: db, REQUIRE_DMARC_PASS: 'true' }, {} as ExecutionContext);
+
+    expect(msg.getRejectedReason()).toBe('Email rejected: DMARC authentication pass is required');
+    expect(db._records.size).toBe(0);
+  });
+
   it('rejects email when Cloudflare header fails even if subsequent forged header claims dmarc=pass', async () => {
     const db = createMockD1Database() as D1Database & { _records: Map<string, MessageRecord> };
     // First header is Cloudflare fail, second header is forged pass
-    const raw = `Authentication-Results: mx.cloudflare.com; dmarc=fail (p=reject dis=reject)
-Authentication-Results: mx.cloudflare.com; dmarc=pass
+    const raw = `Authentication-Results: mx.cloudflare.net; dmarc=fail (p=reject dis=reject)
+Authentication-Results: mx.cloudflare.net; dmarc=pass
 From: spoofed@example.com
 To: user@cottage.dpdns.org
 Subject: Multi-header Attack
@@ -361,7 +377,7 @@ Hello`;
 To: user@cottage.dpdns.org
 Subject: Tricky body
 
-Authentication-Results: mx.cloudflare.com; dmarc=pass
+Authentication-Results: mx.cloudflare.net; dmarc=pass
 This is in the body, not a header!`;
 
     const msg = createMockEmailMessage({ to: 'user@cottage.dpdns.org', rawContent: raw });
@@ -392,7 +408,7 @@ Testing without DMARC.`;
 describe('Inbound Worker: MIME Parsing, HTML Sanitization, Codes and Attachments', () => {
   it('parses multipart email with text, HTML, leading zeros verification code and links', async () => {
     const db = createMockD1Database() as D1Database & { _records: Map<string, MessageRecord> };
-    const raw = `Authentication-Results: mx.cloudflare.com; dmarc=pass
+    const raw = `Authentication-Results: mx.cloudflare.net; dmarc=pass
 From: "Security Team" <security@service.com>
 To: user@cottage.dpdns.org
 Subject: Verification Code 003819
@@ -450,7 +466,7 @@ Content-Type: text/html; charset=utf-8
     const attachmentBinary =
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
-    const raw = `Authentication-Results: mx.cloudflare.com; dmarc=pass
+    const raw = `Authentication-Results: mx.cloudflare.net; dmarc=pass
 From: "Billing" <billing@corp.com>
 To: user@cottage.dpdns.org
 Subject: Invoice Attached 091823

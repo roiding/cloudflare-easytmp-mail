@@ -31,15 +31,15 @@ export function checkDmarcPassFromHeaders(headers: Array<{ key: string; value: s
 
 ### 安全风险
 
-1. **伪造头利用**：攻击者可在发送的原始邮件中包含自建的 `Authentication-Results: attacker.com; dmarc=pass`，或者通过多跳中继保留其他中继 MTA 的认证头。当 Cloudflare Email Routing 判定 DMARC 失败并注入 `Authentication-Results: mx.cloudflare.com; dmarc=fail` 时，由于遍历了所有同名头，`checkDmarcPassFromHeaders` 依然会返回 `true`，导致伪造邮件绕过防护进入用户收件箱。
-2. **缺乏 authserv-id 校验**：即便只有单个头，该函数未校验其是否源自 Cloudflare 认证服务（`mx.cloudflare.com` / `*.cloudflare.com`），任何第三方域名的认证结果均被无条件信任。
+1. **伪造头利用**：攻击者可在发送的原始邮件中包含自建的 `Authentication-Results: attacker.com; dmarc=pass`，或者通过多跳中继保留其他中继 MTA 的认证头。当 Cloudflare Email Routing 判定 DMARC 失败并注入 `Authentication-Results: mx.cloudflare.net; dmarc=fail` 时，由于遍历了所有同名头，`checkDmarcPassFromHeaders` 依然会返回 `true`，导致伪造邮件绕过防护进入用户收件箱。
+2. **缺乏 authserv-id 校验**：即便只有单个头，该函数未校验其是否源自 Cloudflare 认证服务（严格要求标识为 `mx.cloudflare.net`），任何第三方域名的认证结果均被无条件信任。
 
 ### Worker 内部补防措施 (`apps/inbound-worker/src/dmarc.ts`)
 
 Worker 实现了独立的 `parseRawHeaders` 与 `verifyCloudflareDmarc`：
 
 1. 严格只定位并校验**首个** `Authentication-Results` 头（Cloudflare Email Routing 会将自身认证结果头前置插入到邮件最上方）。
-2. 提取分号前的 `authserv-id`，严格正则匹配 Cloudflare 官方服务标识：`/^(?:[a-z0-9-]+\.)*cloudflare(?:\.com)?$/i`。
+2. 提取分号前的 `authserv-id`，严格正则匹配 Cloudflare 官方服务标识：`/^mx\.cloudflare\.net$/i`。
 3. 校验该 Cloudflare 头内部参数包含且仅包含 `dmarc=pass`（使用 `/(?:^|[;\s])dmarc\s*=\s*pass(?:\s|[;(]|$)/i`）。
 4. 忽略后续伪造同名头，且 RFC 5322 头部解析截止于 `\r\n\r\n`，杜绝正文内容伪造头部。
 5. Worker 在将记录写入 D1 时，覆盖 `dmarc_pass` 为 Worker 严格校验后的结果。
