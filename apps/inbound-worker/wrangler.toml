@@ -1,0 +1,22 @@
+name = "easytmp-mail-inbound"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "easytmp-mail"
+# 注意：以下 database_id 为本地开发与占位符，生产部署前必须替换为实际创建的 Cloudflare D1 Database ID (如通过 npx wrangler d1 create easytmp-mail 获取的 UUID)
+database_id = "easytmp-mail-local-id"
+migrations_dir = "../../packages/db/migrations"
+
+[triggers]
+# 定时过期邮件物理清理：每 10 分钟触发一次 scheduled()
+crons = ["*/10 * * * *"]
+
+[vars]
+MAIL_DOMAIN = "cottage.dpdns.org"
+MAX_EMAIL_BYTES = 1048576
+MAX_TEXT_CHARS = 32768
+MAX_HTML_BYTES = 262144
+REQUIRE_DMARC_PASS = "true"

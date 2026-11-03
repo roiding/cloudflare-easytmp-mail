@@ -1,0 +1,1080 @@
+openapi: 3.1.0
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+info:
+  title: Cloudflare EasyTmp Mail API
+  version: 1.0.0
+  description: |
+    公开免密的临时邮箱 API v1。此文件定义接口合同；服务已在本地实现并通过测试，尚未部署线上环境。
+    无需创建邮箱，任何合法邮箱名均可查询；所有邮件接收后保留 7 天。
+    全部时间使用 Unix 毫秒整数，字段名使用 camelCase。详见同目录 api.md。
+
+    所有 GET/DELETE 请求均无请求体。非空请求体返回 400 unexpected_body，
+    超过 8192 字节返回 413 request_too_large。未声明的查询参数、重复参数、
+    空参数或非法值返回 400；数值参数必须是十进制整数字符串，布尔参数仅接受 true/false。
+    邮箱名参数接受 ASCII 大写并转为小写，其余路径和参数名区分大小写。
+
+    所有应用生成的响应携带 Cache-Control: no-store、Access-Control-Allow-Origin: *、
+    Access-Control-Expose-Headers: Retry-After, X-Request-Id、X-Request-Id 和
+    X-Content-Type-Options: nosniff。JSON 响应使用 application/json; charset=utf-8。
+    /api/* 的 OPTIONS 返回 204，无响应体；允许 GET, DELETE, OPTIONS 和 Content-Type，
+    不使用 Cookie、Authorization 或 Access-Control-Allow-Credentials。
+    未实现的方法返回 405 和 Allow；未知 API 路径返回 404 route_not_found。
+    上游平台在请求到达应用前生成的错误不保证符合本合同。
+
+    未改变 v1 既有字段语义的新增响应字段属于兼容扩展，客户端应忽略未知字段。
+    不兼容的字段、类型或行为变更必须使用新主版本路径。
+servers:
+  - url: https://inbox.cottage.dpdns.org
+    description: 计划部署的网页与 API 域名；当前规范不表示该服务已上线。
+security: []
+tags:
+  - name: System
+    description: HTTP API 存活检查。
+  - name: Addresses
+    description: 生成可直接使用的随机邮箱名，不创建或占用资源。
+  - name: Messages
+    description: 按邮箱名查询、读取和删除公开邮件。
+paths:
+  /api/health:
+    get:
+      tags: [System]
+      operationId: getHealth
+      summary: 检查 HTTP API 存活并取得服务时间
+      description: |
+        不查询 D1 或测试真实投递，只表示 HTTP API 正常响应。
+        可在外部流程触发发信前使用 serverTime 作为 since。
+        不接受查询参数。此运维端点不在 /api/v1 下。
+      responses:
+        '200':
+          description: HTTP API 正常响应。
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+            Access-Control-Allow-Origin:
+              $ref: '#/components/headers/PublicOrigin'
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              examples:
+                healthy:
+                  $ref: '#/components/examples/Healthy'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '413':
+          $ref: '#/components/responses/RequestTooLarge'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/addresses/random:
+    get:
+      tags: [Addresses]
+      operationId: getRandomAddress
+      summary: 生成随机邮箱名和完整地址
+      description: |
+        name 为使用密码学随机源生成的 16 位小写字母/数字字符串。
+        不写入数据库、不预留名称、不保证独占；相同名称总是指向同一收件箱。
+        不接受查询参数。每次请求可生成新地址，客户端须自行保存想使用的名称。
+      responses:
+        '200':
+          description: 返回随机名称、完整地址和服务时间。
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+            Access-Control-Allow-Origin:
+              $ref: '#/components/headers/PublicOrigin'
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RandomAddressResponse'
+              examples:
+                randomAddress:
+                  $ref: '#/components/examples/RandomAddress'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '413':
+          $ref: '#/components/responses/RequestTooLarge'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/mailboxes/{name}/messages:
+    parameters:
+      - $ref: '#/components/parameters/Name'
+    get:
+      tags: [Messages]
+      operationId: listMessages
+      summary: 按邮箱名列出邮件，支持 since、筛选和分页
+      description: |
+        始终只返回 expiresAt > serverTime 的未删除邮件。
+        所有筛选条件使用 AND。固定按 receivedAt DESC、id DESC 排序。
+        没有匹配邮件、首次使用的邮箱名或邮件已全部过期时返回 200 和空 messages。
+        pagination.nextCursor 非 null 表示查询时还存在下一页；不提供总数。
+
+        游标仅用于向更旧的邮件翻页，依据最后一条的 (receivedAt, id) 严格向后读取。
+        游标绑定规范化邮箱名和 since/fromDomain/subject/dmarcPass，翻页时必须保持
+        相同筛选条件；limit 可改变。游标不是鉴权凭据，也不建立数据库快照。
+        锚点邮件被删除或过期后仍能继续翻页，其他已过期/删除邮件会跳过。
+        新邮件应从不带 cursor 的第一页读取。轮询需固定任务开始时的 since，按 id 去重。
+      parameters:
+        - $ref: '#/components/parameters/Since'
+        - $ref: '#/components/parameters/FromDomain'
+        - $ref: '#/components/parameters/Subject'
+        - $ref: '#/components/parameters/DmarcPass'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: 匹配的邮件摘要页，或正常的空收件箱。
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+            Access-Control-Allow-Origin:
+              $ref: '#/components/headers/PublicOrigin'
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageListResponse'
+              examples:
+                withMessage:
+                  $ref: '#/components/examples/MessageList'
+                empty:
+                  $ref: '#/components/examples/EmptyList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '413':
+          $ref: '#/components/responses/RequestTooLarge'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    delete:
+      tags: [Messages]
+      operationId: clearMailbox
+      summary: 清空指定时间之前的可读邮件，地址继续收信
+      description: |
+        删除该邮箱内 receivedAt < before 且 expiresAt > serverTime 的邮件。
+        before 默认为请求开始时固定的 serverTime，显式值不能晚于该 serverTime。
+        deletedCount 为本次实际删除的可读邮件数；过期记录由 Cron 清理，不计入本次结果。
+        删除基于实际执行时的数据库语句快照，不阻止未来收信，也不清理随后才入库的邮件。
+        无可删邮件时返回 200、deletedCount: 0。不会创建、注销或占用邮箱名。
+        本操作只接受 before，不接受列表接口的 since/筛选/分页参数。
+      parameters:
+        - $ref: '#/components/parameters/Before'
+      responses:
+        '200':
+          description: 返回规范化邮箱名、实际截止时间和删除数量。
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+            Access-Control-Allow-Origin:
+              $ref: '#/components/headers/PublicOrigin'
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClearMailboxResponse'
+              examples:
+                cleared:
+                  $ref: '#/components/examples/MailboxCleared'
+                nothingToClear:
+                  $ref: '#/components/examples/MailboxAlreadyEmpty'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '413':
+          $ref: '#/components/responses/RequestTooLarge'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/messages/{id}:
+    parameters:
+      - $ref: '#/components/parameters/MessageId'
+    get:
+      tags: [Messages]
+      operationId: getMessage
+      summary: 获取邮件详情、正文和链接
+      description: |
+        不接受查询参数。仅返回 expiresAt > serverTime 的未删除邮件。
+        格式正确但不存在、已删除或已过期的 id 统一返回 404 message_not_found。
+        htmlBody 是经过清洗的 HTML 字符串，客户端仍须隔离渲染，不直接注入应用主页面。
+      responses:
+        '200':
+          description: 返回单封邮件完整详情。
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+            Access-Control-Allow-Origin:
+              $ref: '#/components/headers/PublicOrigin'
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+              examples:
+                htmlMessage:
+                  $ref: '#/components/examples/HtmlMessage'
+                plainMessage:
+                  $ref: '#/components/examples/PlainMessage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/MessageNotFound'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '413':
+          $ref: '#/components/responses/RequestTooLarge'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    delete:
+      tags: [Messages]
+      operationId: deleteMessage
+      summary: 幂等删除一封可读邮件
+      description: |
+        不接受查询参数。id 格式错误返回 400 invalid_message_id。
+        本次删除仍可读的邮件时 deleted 为 true；不存在、已删除或已过期时为 false。
+        两种结果均返回 200。重复调用不报 404，也不会影响同地址之后收到的其他邮件。
+        过期但尚未物理清理的记录不算可读邮件，仍返回 deleted: false。
+      responses:
+        '200':
+          description: 返回邮件 id 和本次是否实际删除了可读邮件。
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+            Access-Control-Allow-Origin:
+              $ref: '#/components/headers/PublicOrigin'
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteMessageResponse'
+              examples:
+                deleted:
+                  $ref: '#/components/examples/MessageDeleted'
+                absent:
+                  $ref: '#/components/examples/MessageAlreadyAbsent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '413':
+          $ref: '#/components/responses/RequestTooLarge'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+components:
+  parameters:
+    Name:
+      name: name
+      in: path
+      required: true
+      description: |
+        邮箱 local part，1–64 个 ASCII 字符；首尾必须为字母或数字，中间允许 . _ -，
+        不允许连续点。ASCII 大写转为小写；不做空白裁剪，不支持 @、+、空格或完整邮箱地址。
+        路径按 UTF-8 百分号编码解码一次后校验，非法编码返回 400。
+      schema:
+        $ref: '#/components/schemas/MailboxNameInput'
+      example: signup
+    MessageId:
+      name: id
+      in: path
+      required: true
+      description: 小写标准 UUID v4，格式错误返回 400 invalid_message_id。
+      schema:
+        $ref: '#/components/schemas/MessageId'
+      example: 8c746a0e-7f90-4b13-a71c-9db724e57c02
+    Since:
+      name: since
+      in: query
+      required: false
+      description: |
+        接收时间下界，包含边界：receivedAt >= since。省略时读取全部仍可读邮件。
+        允许未来时间，当前无匹配结果时返回空列表。不能延长 7 天保留期。
+        只接受 0 或不带前导零的十进制正整数字符串；单位固定为毫秒，不自动推断秒。
+      schema:
+        $ref: '#/components/schemas/Timestamp'
+      example: 1793671200000
+    FromDomain:
+      name: fromDomain
+      in: query
+      required: false
+      description: |
+        精确匹配解析出的 From 头邮箱域名，不匹配 envelopeFrom 或显示名。
+        ASCII 大写转小写；不自动匹配子域名，不接受前导 @、URL、尾点或通配符。
+        国际化域名需使用 ASCII/Punycode。无法解析 From 的邮件不匹配此筛选。
+      schema:
+        type: string
+        minLength: 3
+        maxLength: 253
+        pattern: '^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?![\s\S])'
+      example: example.com
+    Subject:
+      name: subject
+      in: query
+      required: false
+      description: |
+        标题的字面子串，1–200 个 Unicode 码点，不裁剪空格。
+        仅 ASCII A–Z 忽略大小写，其他字符按原字符匹配，不做 Unicode 归一化。
+        %、_ 等字符均为字面文本，不支持正则或 SQL 通配符。
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 200
+      example: 验证码
+    DmarcPass:
+      name: dmarcPass
+      in: query
+      required: false
+      description: |
+        精确匹配记录中的 dmarcPass；省略时不筛选。
+        只接受小写 true 或 false。false 表示未记录为 pass，不能区分 fail、none 或缺失。
+      schema:
+        type: boolean
+      example: true
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: 每页条数，1–100，默认 20；只接受十进制整数字符串，超范围返回 400，不自动截断。
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+      example: 20
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: |
+        上一页的 pagination.nextCursor，原样传回，不自行构造。
+        不透明的 base64url 字符串，不包含访问凭据。结构无效或邮箱/筛选不一致返回
+        400 invalid_cursor；邮件过期或锚点被删除本身不使游标失效。
+      schema:
+        $ref: '#/components/schemas/Cursor'
+    Before:
+      name: before
+      in: query
+      required: false
+      description: |
+        删除时间上界，不含边界：receivedAt < before。
+        默认采用请求开始时的 serverTime，显式值必须 <= serverTime；超出返回 400 invalid_query。
+        只接受 0 或不带前导零的十进制正整数字符串，单位为 Unix 毫秒。
+      schema:
+        $ref: '#/components/schemas/Timestamp'
+      example: 1793671210000
+
+  headers:
+    NoStore:
+      description: 所有 API 响应禁止缓存。
+      required: true
+      schema:
+        type: string
+        const: no-store
+    PublicOrigin:
+      description: 允许公开、无凭据的跨域调用。
+      required: true
+      schema:
+        type: string
+        const: '*'
+    RequestId:
+      description: 服务为本次 HTTP 请求生成的 UUID v4；错误响应中的 requestId 与其相同。
+      required: true
+      schema:
+        $ref: '#/components/schemas/MessageId'
+    RetryAfter:
+      description: 重试前应等待的整数秒数；应用产生的 429 和 503 必须携带，格式为 delta-seconds。
+      required: true
+      schema:
+        type: string
+        pattern: '^[1-9][0-9]*(?![\s\S])'
+      example: '3'
+    Allow:
+      description: 当前路径支持的方法，例如 GET, DELETE, OPTIONS。
+      required: true
+      schema:
+        type: string
+      example: GET, DELETE, OPTIONS
+
+  schemas:
+    Timestamp:
+      type: integer
+      format: int64
+      minimum: 0
+      maximum: 9007199254740991
+      description: Unix 毫秒整数，必须在 JavaScript 安全整数范围内。
+    MailboxNameInput:
+      type: string
+      minLength: 1
+      maxLength: 64
+      pattern: '^(?!.*\.\.)[A-Za-z0-9](?:[A-Za-z0-9._-]{0,62}[A-Za-z0-9])?(?![\s\S])'
+    MailboxName:
+      type: string
+      minLength: 1
+      maxLength: 64
+      pattern: '^(?!.*\.\.)[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?(?![\s\S])'
+      description: 规范化后的小写邮箱名。
+    MailboxAddress:
+      type: string
+      format: email
+      maxLength: 82
+      pattern: '^(?!.*\.\.)[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?@cottage\.dpdns\.org(?![\s\S])'
+      description: 规范化 name 加固定的 @cottage.dpdns.org。
+    MessageId:
+      type: string
+      format: uuid
+      pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?![\s\S])'
+    Cursor:
+      type: string
+      minLength: 1
+      maxLength: 1024
+      pattern: '^[A-Za-z0-9_-]+(?![\s\S])'
+    Sender:
+      type: object
+      required: [name, address, domain]
+      properties:
+        name:
+          type: string
+          maxLength: 256
+          description: MIME 解码后的首个可解析 From 邮箱显示名；无可解析邮箱或无显示名时为空字符串。
+        address:
+          type: [string, 'null']
+          maxLength: 254
+          description: 首个可解析的 From 邮箱地址，域名小写；无可解析邮箱时为 null。
+        domain:
+          type: [string, 'null']
+          maxLength: 253
+          description: address 的小写 ASCII/Punycode 域名，无可解析域名时为 null。
+    CodeCandidate:
+      type: object
+      required: [value, source, context]
+      properties:
+        value:
+          type: string
+          minLength: 4
+          maxLength: 12
+          pattern: '^[A-Za-z0-9]{4,12}(?![\s\S])'
+          description: 验证码候选字符串，保留前导零和字母大小写，不能按数字解析。
+        source:
+          type: string
+          enum: [subject, textBody]
+          description: 从标题或正文文本提取；由 HTML 回退提取的可见文本也归入 textBody。
+        context:
+          type: string
+          maxLength: 160
+          description: 候选附近的纯文本上下文，用于判断；不是 HTML。
+    LinkCandidate:
+      type: object
+      required: [url, text, host]
+      properties:
+        url:
+          type: string
+          format: uri
+          maxLength: 4096
+          pattern: '^https://[^\s]+(?![\s\S])'
+          description: 经 URL 解析和规范化的绝对 HTTPS 链接，不允许用户名或密码。
+        text:
+          type: string
+          maxLength: 256
+          description: 链接或按钮的纯文本标题；独立 URL 没有标题时为空字符串。
+        host:
+          type: string
+          minLength: 1
+          maxLength: 253
+          description: URL.hostname，小写 ASCII/Punycode，不含端口；IP 字面量也可出现。
+    MessageSummary:
+      type: object
+      required:
+        - id
+        - address
+        - from
+        - subject
+        - preview
+        - receivedAt
+        - expiresAt
+        - dmarcPass
+        - codeCandidates
+        - hasHtml
+      properties:
+        id:
+          $ref: '#/components/schemas/MessageId'
+        address:
+          $ref: '#/components/schemas/MailboxAddress'
+        from:
+          $ref: '#/components/schemas/Sender'
+        subject:
+          type: string
+          maxLength: 998
+          description: 解码后的纯文本标题，无标题时为空字符串；超长时按码点截断。
+        preview:
+          type: string
+          maxLength: 200
+          description: textBody 合并空白后的前 200 个 Unicode 码点，无文本时为空字符串。
+        receivedAt:
+          $ref: '#/components/schemas/Timestamp'
+          description: 服务接收邮件时的时间，不使用发件人可设置的 Date 头。
+        expiresAt:
+          $ref: '#/components/schemas/Timestamp'
+          description: receivedAt + 604800000，接收后恰好 7 天。
+        dmarcPass:
+          type: boolean
+          description: 是否从可信的 Cloudflare 认证结果记录到 DMARC pass；false 不区分原因。
+        codeCandidates:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/CodeCandidate'
+          description: |
+            无候选时为 []。先标题、再正文，按各自出现顺序；相同 value 仅保留首次出现。
+            候选不保证正确，不提供强制选定的唯一 code 字段。
+        hasHtml:
+          type: boolean
+          description: 是否有可用的清洗后 HTML；与详情 htmlBody 非 null 等价。
+    MessageDetail:
+      allOf:
+        - $ref: '#/components/schemas/MessageSummary'
+        - type: object
+          required: [envelopeFrom, textBody, htmlBody, textTruncated, htmlStatus, links, sizeBytes]
+          properties:
+            envelopeFrom:
+              type: [string, 'null']
+              maxLength: 254
+              description: SMTP envelope 发件地址；空反向路径或无法表示时为 null，不等于 From 头。
+            textBody:
+              type: string
+              maxLength: 131072
+              description: 规范化纯文本；无内容时为空字符串，超过部署上限时截断。
+            htmlBody:
+              type: [string, 'null']
+              maxLength: 524288
+              description: |
+                清洗后、保留基本排版与验证按钮的 HTML。UTF-8 字节数另受 MAX_HTML_BYTES 限制，
+                最高 524288 字节。无可用 HTML 时为 null，不返回未经清洗的原始 HTML。
+            textTruncated:
+              type: boolean
+              description: textBody 是否因部署的正文长度上限被截断。
+            htmlStatus:
+              type: string
+              enum: [available, not_present, too_large, unavailable]
+              description: |
+                available 表示 htmlBody 非 null 且 hasHtml 为 true。
+                not_present 表示原邮件没有 HTML；too_large 表示清洗后 HTML 超限；
+                unavailable 表示清洗失败或无可用 HTML。后三种均 htmlBody: null、hasHtml: false。
+            links:
+              type: array
+              maxItems: 20
+              items:
+                $ref: '#/components/schemas/LinkCandidate'
+              description: |
+                无链接时为 []。先 HTML 链接 DOM 顺序，再正文中的 URL 顺序，按规范化 URL 去重。
+                保留首个非空标题。不保证每条都是验证链接，不会自动访问。
+            sizeBytes:
+              type: integer
+              minimum: 1
+              maximum: 2097152
+              description: 实际读取的原始邮件总字节数，包括最终未保存的附件部分。
+        - oneOf:
+            - properties:
+                hasHtml:
+                  const: true
+                htmlStatus:
+                  const: available
+                htmlBody:
+                  type: string
+                  minLength: 1
+            - properties:
+                hasHtml:
+                  const: false
+                htmlStatus:
+                  enum: [not_present, too_large, unavailable]
+                htmlBody:
+                  type: 'null'
+    Pagination:
+      type: object
+      required: [limit, nextCursor]
+      properties:
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: 本次生效的每页上限；不是实际返回数量。
+        nextCursor:
+          oneOf:
+            - $ref: '#/components/schemas/Cursor'
+            - type: 'null'
+          description: 查询时还有更旧的匹配邮件则返回游标，否则为 null。
+    HealthResponse:
+      type: object
+      required: [status, service, apiVersion, serverTime]
+      properties:
+        status:
+          type: string
+          const: ok
+        service:
+          type: string
+          const: easytmp-mail
+        apiVersion:
+          type: string
+          const: '1'
+        serverTime:
+          $ref: '#/components/schemas/Timestamp'
+    RandomAddressResponse:
+      type: object
+      required: [name, address, serverTime]
+      properties:
+        name:
+          type: string
+          pattern: '^[a-z0-9]{16}(?![\s\S])'
+          minLength: 16
+          maxLength: 16
+        address:
+          $ref: '#/components/schemas/MailboxAddress'
+        serverTime:
+          $ref: '#/components/schemas/Timestamp'
+    MessageListResponse:
+      type: object
+      required: [name, address, messages, pagination, serverTime]
+      properties:
+        name:
+          $ref: '#/components/schemas/MailboxName'
+        address:
+          $ref: '#/components/schemas/MailboxAddress'
+        messages:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/MessageSummary'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+        serverTime:
+          $ref: '#/components/schemas/Timestamp'
+          description: 请求开始时固定的服务时间，本请求使用该时间判定过期。
+    MessageResponse:
+      type: object
+      required: [message, serverTime]
+      properties:
+        message:
+          $ref: '#/components/schemas/MessageDetail'
+        serverTime:
+          $ref: '#/components/schemas/Timestamp'
+    DeleteMessageResponse:
+      type: object
+      required: [id, deleted, serverTime]
+      properties:
+        id:
+          $ref: '#/components/schemas/MessageId'
+        deleted:
+          type: boolean
+        serverTime:
+          $ref: '#/components/schemas/Timestamp'
+    ClearMailboxResponse:
+      type: object
+      required: [name, address, before, deletedCount, serverTime]
+      properties:
+        name:
+          $ref: '#/components/schemas/MailboxName'
+        address:
+          $ref: '#/components/schemas/MailboxAddress'
+        before:
+          $ref: '#/components/schemas/Timestamp'
+          description: 本次生效的排他删除上界，小于或等于 serverTime。
+        deletedCount:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        serverTime:
+          $ref: '#/components/schemas/Timestamp'
+    ErrorDetail:
+      type: object
+      required: [field, message]
+      properties:
+        field:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: 出错字段名，如 since、name、cursor 或 body；不包含用户传入的值。
+        message:
+          type: string
+          minLength: 1
+          maxLength: 256
+          description: 可读原因，具体措辞不作为客户端判断依据。
+    ErrorResponse:
+      type: object
+      required: [error, message, details, requestId, serverTime]
+      properties:
+        error:
+          type: string
+          enum:
+            - invalid_mailbox_name
+            - invalid_message_id
+            - invalid_query
+            - invalid_cursor
+            - unexpected_body
+            - message_not_found
+            - route_not_found
+            - method_not_allowed
+            - request_too_large
+            - rate_limited
+            - internal_error
+            - service_unavailable
+        message:
+          type: string
+          minLength: 1
+          maxLength: 256
+        details:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/ErrorDetail'
+          description: 无字段级错误时返回 []，不省略。
+        requestId:
+          $ref: '#/components/schemas/MessageId'
+          description: 与 X-Request-Id 响应头相同，用于定位请求。
+        serverTime:
+          $ref: '#/components/schemas/Timestamp'
+
+  responses:
+    BadRequest:
+      description: |
+        参数或请求体错误。error 为 invalid_mailbox_name、invalid_message_id、invalid_query、
+        invalid_cursor 或 unexpected_body；详见 api.md 的错误码表。
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+        Access-Control-Allow-Origin:
+          $ref: '#/components/headers/PublicOrigin'
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            invalidSince:
+              $ref: '#/components/examples/InvalidSince'
+            invalidCursor:
+              $ref: '#/components/examples/InvalidCursor'
+    MessageNotFound:
+      description: id 格式合法，但邮件不存在、已删除或已过期；error 为 message_not_found。
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+        Access-Control-Allow-Origin:
+          $ref: '#/components/headers/PublicOrigin'
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            notFound:
+              $ref: '#/components/examples/MessageNotFound'
+    MethodNotAllowed:
+      description: 路径存在但方法不支持；error 为 method_not_allowed，Allow 列出该路径支持的方法。
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+        Access-Control-Allow-Origin:
+          $ref: '#/components/headers/PublicOrigin'
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+        Allow:
+          $ref: '#/components/headers/Allow'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            methodNotAllowed:
+              $ref: '#/components/examples/MethodNotAllowed'
+    RequestTooLarge:
+      description: HTTP API 请求体超过 8192 字节；error 为 request_too_large。邮件投递的大小限制不使用此 HTTP 接口。
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+        Access-Control-Allow-Origin:
+          $ref: '#/components/headers/PublicOrigin'
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            requestTooLarge:
+              $ref: '#/components/examples/RequestTooLarge'
+    RateLimited:
+      description: 请求过于频繁；error 为 rate_limited，按 Retry-After 等待后重试。具体部署阈值不是 v1 字段合同的一部分。
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+        Access-Control-Allow-Origin:
+          $ref: '#/components/headers/PublicOrigin'
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            rateLimited:
+              $ref: '#/components/examples/RateLimited'
+    InternalError:
+      description: 未预期的应用错误；error 为 internal_error，不返回堆栈、SQL 或邮件内容。
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+        Access-Control-Allow-Origin:
+          $ref: '#/components/headers/PublicOrigin'
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            internalError:
+              $ref: '#/components/examples/InternalError'
+    ServiceUnavailable:
+      description: 临时不可用，例如 D1 操作暂时失败；error 为 service_unavailable，按 Retry-After 等待后重试。
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+        Access-Control-Allow-Origin:
+          $ref: '#/components/headers/PublicOrigin'
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            serviceUnavailable:
+              $ref: '#/components/examples/ServiceUnavailable'
+
+  examples:
+    Healthy:
+      value:
+        status: ok
+        service: easytmp-mail
+        apiVersion: '1'
+        serverTime: 1793671200000
+    RandomAddress:
+      value:
+        name: p7x4m9q2v6k8n3r5
+        address: p7x4m9q2v6k8n3r5@cottage.dpdns.org
+        serverTime: 1793671200000
+    MessageList:
+      value:
+        name: signup
+        address: signup@cottage.dpdns.org
+        messages:
+          - id: 8c746a0e-7f90-4b13-a71c-9db724e57c02
+            address: signup@cottage.dpdns.org
+            from:
+              name: Example
+              address: no-reply@example.com
+              domain: example.com
+            subject: '你的验证码：012345'
+            preview: '你的验证码是 012345，5 分钟内有效。也可以点击“验证邮箱”完成验证。'
+            receivedAt: 1793671205000
+            expiresAt: 1794276005000
+            dmarcPass: true
+            codeCandidates:
+              - value: '012345'
+                source: subject
+                context: '你的验证码：012345'
+            hasHtml: true
+        pagination:
+          limit: 20
+          nextCursor: null
+        serverTime: 1793671210000
+    EmptyList:
+      value:
+        name: signup
+        address: signup@cottage.dpdns.org
+        messages: []
+        pagination:
+          limit: 20
+          nextCursor: null
+        serverTime: 1793671200000
+    HtmlMessage:
+      value:
+        message:
+          id: 8c746a0e-7f90-4b13-a71c-9db724e57c02
+          address: signup@cottage.dpdns.org
+          from:
+            name: Example
+            address: no-reply@example.com
+            domain: example.com
+          subject: '你的验证码：012345'
+          preview: '你的验证码是 012345，5 分钟内有效。也可以点击“验证邮箱”完成验证。'
+          receivedAt: 1793671205000
+          expiresAt: 1794276005000
+          dmarcPass: true
+          codeCandidates:
+            - value: '012345'
+              source: subject
+              context: '你的验证码：012345'
+          hasHtml: true
+          envelopeFrom: bounce@example.com
+          textBody: '你的验证码是 012345，5 分钟内有效。也可以点击“验证邮箱”完成验证。'
+          htmlBody: '<p>你的验证码是 <strong>012345</strong>，5 分钟内有效。</p><a href="https://example.com/verify?t=demo" style="display:inline-block;padding:12px 20px;background-color:#00a884;color:#ffffff" target="_blank" rel="noopener noreferrer">验证邮箱</a>'
+          textTruncated: false
+          htmlStatus: available
+          links:
+            - url: https://example.com/verify?t=demo
+              text: 验证邮箱
+              host: example.com
+          sizeBytes: 2048
+        serverTime: 1793671210000
+    PlainMessage:
+      value:
+        message:
+          id: 951d52f1-af44-456d-b5be-d69fa6e2e201
+          address: signup@cottage.dpdns.org
+          from:
+            name: ''
+            address: null
+            domain: null
+          subject: ''
+          preview: 这是一封纯文本通知。
+          receivedAt: 1793671205000
+          expiresAt: 1794276005000
+          dmarcPass: false
+          codeCandidates: []
+          hasHtml: false
+          envelopeFrom: null
+          textBody: 这是一封纯文本通知。
+          htmlBody: null
+          textTruncated: false
+          htmlStatus: not_present
+          links: []
+          sizeBytes: 256
+        serverTime: 1793671210000
+    MessageDeleted:
+      value:
+        id: 8c746a0e-7f90-4b13-a71c-9db724e57c02
+        deleted: true
+        serverTime: 1793671210000
+    MessageAlreadyAbsent:
+      value:
+        id: 8c746a0e-7f90-4b13-a71c-9db724e57c02
+        deleted: false
+        serverTime: 1793671210000
+    MailboxCleared:
+      value:
+        name: signup
+        address: signup@cottage.dpdns.org
+        before: 1793671210000
+        deletedCount: 2
+        serverTime: 1793671210000
+    MailboxAlreadyEmpty:
+      value:
+        name: signup
+        address: signup@cottage.dpdns.org
+        before: 1793671200000
+        deletedCount: 0
+        serverTime: 1793671210000
+    InvalidSince:
+      value:
+        error: invalid_query
+        message: Invalid query parameter
+        details:
+          - field: since
+            message: Must be a non-negative safe integer in Unix milliseconds
+        requestId: 5ab0dc31-ea54-4e46-95cf-d4a7d03a3aa1
+        serverTime: 1793671210000
+    InvalidCursor:
+      value:
+        error: invalid_cursor
+        message: Cursor is invalid or does not match this query
+        details:
+          - field: cursor
+            message: Restart from the first page with the intended filters
+        requestId: 5ab0dc31-ea54-4e46-95cf-d4a7d03a3aa1
+        serverTime: 1793671210000
+    MessageNotFound:
+      value:
+        error: message_not_found
+        message: Message not found
+        details: []
+        requestId: 5ab0dc31-ea54-4e46-95cf-d4a7d03a3aa1
+        serverTime: 1793671210000
+    MethodNotAllowed:
+      value:
+        error: method_not_allowed
+        message: Method not allowed
+        details: []
+        requestId: 5ab0dc31-ea54-4e46-95cf-d4a7d03a3aa1
+        serverTime: 1793671210000
+    RequestTooLarge:
+      value:
+        error: request_too_large
+        message: Request body exceeds 8192 bytes
+        details: []
+        requestId: 5ab0dc31-ea54-4e46-95cf-d4a7d03a3aa1
+        serverTime: 1793671210000
+    RateLimited:
+      value:
+        error: rate_limited
+        message: Too many requests
+        details: []
+        requestId: 5ab0dc31-ea54-4e46-95cf-d4a7d03a3aa1
+        serverTime: 1793671210000
+    InternalError:
+      value:
+        error: internal_error
+        message: Internal server error
+        details: []
+        requestId: 5ab0dc31-ea54-4e46-95cf-d4a7d03a3aa1
+        serverTime: 1793671210000
+    ServiceUnavailable:
+      value:
+        error: service_unavailable
+        message: Service temporarily unavailable
+        details: []
+        requestId: 5ab0dc31-ea54-4e46-95cf-d4a7d03a3aa1
+        serverTime: 1793671210000

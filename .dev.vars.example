@@ -1,0 +1,9 @@
+# Cloudflare EasyTmp Mail - Local Development Variables Template
+# Copy this file to .dev.vars for local development with wrangler.
+# Do NOT commit real secrets or credentials.
+
+MAIL_DOMAIN=cottage.dpdns.org
+MAX_EMAIL_BYTES=1048576
+MAX_TEXT_CHARS=32768
+MAX_HTML_BYTES=262144
+REQUIRE_DMARC_PASS=true

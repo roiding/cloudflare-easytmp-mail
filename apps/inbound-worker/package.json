@@ -1,0 +1,19 @@
+{
+  "name": "@easytmp/inbound-worker",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "wrangler deploy --dry-run"
+  },
+  "dependencies": {
+    "@easytmp/db": "workspace:*",
+    "@easytmp/shared": "workspace:*",
+    "postal-mime": "^4.2.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241106.0",
+    "@types/node": "^22.13.10",
+    "typescript": "^5.8.2"
+  }
+}

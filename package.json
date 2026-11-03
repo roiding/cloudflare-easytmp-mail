@@ -1,0 +1,41 @@
+{
+  "name": "cloudflare-easytmp-mail",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r --filter \"./packages/**\" --filter \"./apps/web\" run build && pnpm --filter @easytmp/api build && pnpm --filter @easytmp/inbound-worker build",
+    "check": "pnpm typecheck && pnpm lint && pnpm format",
+    "test": "vitest run",
+    "test:all": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "pnpm -r run typecheck",
+    "lint": "eslint .",
+    "format": "prettier --check .",
+    "format:write": "prettier --write .",
+    "pages:dev": "cd apps/api && wrangler pages dev dist --persist-to ../../.wrangler/state",
+    "worker:dev": "cd apps/inbound-worker && wrangler dev --persist-to ../../.wrangler/state",
+    "deploy:pages": "node scripts/deploy-pages.js",
+    "deploy:worker": "node scripts/deploy-worker.js",
+    "db:migrate:local": "cd apps/api && wrangler d1 migrations apply easytmp-mail --local --persist-to ../../.wrangler/state",
+    "db:migrate:remote": "node scripts/migrate-remote.js",
+    "email-routing:check": "node scripts/configure-email-routing.js --dry-run",
+    "email-routing:apply": "node scripts/configure-email-routing.js --apply",
+    "pages:domain:check": "node scripts/configure-pages-domain.js --dry-run",
+    "pages:domain:apply": "node scripts/configure-pages-domain.js --apply",
+    "cleanup:check": "node scripts/cleanup-old-service.js --dry-run",
+    "cleanup:apply": "node scripts/cleanup-old-service.js --apply",
+    "deploy:orchestrate": "node scripts/orchestrate-deployment.js",
+    "smoke-test": "node scripts/smoke-test.js"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.22.0",
+    "@types/node": "^22.13.10",
+    "eslint": "^9.22.0",
+    "prettier": "^3.5.3",
+    "typescript": "^5.8.2",
+    "typescript-eslint": "^8.26.0",
+    "vitest": "^3.0.8",
+    "wrangler": "4.156.2"
+  }
+}
