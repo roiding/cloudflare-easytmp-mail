@@ -101,22 +101,19 @@ function createMockFetch(overrides: Record<string, unknown> = {}) {
       };
     }
 
-    if (path.startsWith(`/accounts/${MOCK_ACCOUNT_ID}/workers/scripts/`)) {
-      const script = path.split('/').pop();
-      if (overrides.missingWorkers?.includes(script)) {
-        return {
-          status: 404,
-          ok: false,
-          json: async () => ({
-            success: false,
-            errors: [{ code: 10007, message: 'Script not found' }],
-          }),
-        };
-      }
+    if (path === `/accounts/${MOCK_ACCOUNT_ID}/workers/scripts`) {
+      const scripts = [
+        'easytmp-mail-inbound',
+        'legacy-temp-mail-worker',
+        'email-code-worker',
+      ].filter((script) => !overrides.missingWorkers?.includes(script));
       return {
         status: 200,
         ok: true,
-        json: async () => ({ success: true, result: { id: script, modified_on: '2026-11-01' } }),
+        json: async () => ({
+          success: true,
+          result: scripts.map((id) => ({ id, modified_on: '2026-11-01' })),
+        }),
       };
     }
 

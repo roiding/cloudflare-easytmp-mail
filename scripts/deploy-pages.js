@@ -42,6 +42,10 @@ export function deployPages({
       console.log(
         `[deploy:pages] [APPLY] Deploying Cloudflare Pages project (easytmp-mail) with DB ID: ${validDbId}...`,
       );
+      executor('npx wrangler pages functions build functions', {
+        cwd: tempPages.tempDir,
+        stdio: 'inherit',
+      });
       executor(
         `npx wrangler pages deploy "${distDir}" --project-name easytmp-mail --cwd "${tempPages.tempDir}"`,
         {

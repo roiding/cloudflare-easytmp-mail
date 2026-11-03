@@ -46,13 +46,13 @@ function createMockFetch(overrides: Record<string, unknown> = {}) {
       };
     }
 
-    if (path === `/accounts/${MOCK_ACCOUNT_ID}/workers/scripts/easytmp-mail-inbound`) {
+    if (path === `/accounts/${MOCK_ACCOUNT_ID}/workers/scripts`) {
       return {
         status: 200,
         ok: true,
         json: async () => ({
           success: true,
-          result: { id: 'easytmp-mail-inbound', created_on: '2026-11-03T00:00:00Z' },
+          result: [{ id: 'easytmp-mail-inbound', created_on: '2026-11-03T00:00:00Z' }],
         }),
       };
     }

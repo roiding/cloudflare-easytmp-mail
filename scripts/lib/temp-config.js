@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -111,6 +111,15 @@ export function generatePagesTempDir(dbId) {
   mkdirSync(tempDirPath, { recursive: true });
   activeTempPaths.add(tempDirPath);
 
+  // `wrangler pages deploy` discovers Functions relative to its working
+  // directory. Keep the checked-in API Functions available in the isolated
+  // deployment project so a production publish includes the API as well as
+  // the static site.
+  cpSync(resolve(apiDir, 'functions'), resolve(tempDirPath, 'functions'), {
+    recursive: true,
+  });
+  symlinkSync(resolve(apiDir, 'node_modules'), resolve(tempDirPath, 'node_modules'), 'junction');
+
   const toml = `
 name = "easytmp-mail"
 compatibility_date = "2024-11-01"
@@ -133,6 +142,7 @@ MAIL_DOMAIN = "cottage.dpdns.org"
   return {
     tempDir: tempDirPath,
     configPath,
+    functionsDir: resolve(tempDirPath, 'functions'),
     cleanup() {
       rmSync(tempDirPath, { recursive: true, force: true });
       activeTempPaths.delete(tempDirPath);

@@ -63,6 +63,11 @@ describe('Wrangler Temporary Config Generator', () => {
     try {
       expect(existsSync(temp.tempDir)).toBe(true);
       expect(existsSync(temp.configPath)).toBe(true);
+      expect(existsSync(resolve(temp.functionsDir, 'api/[[route]].ts'))).toBe(true);
+      expect(existsSync(resolve(temp.tempDir, 'node_modules/hono/package.json'))).toBe(true);
+      expect(existsSync(resolve(temp.tempDir, 'node_modules/@easytmp/shared/package.json'))).toBe(
+        true,
+      );
 
       const generated = readFileSync(temp.configPath, 'utf8');
       expect(generated).toContain(`database_id = "${testDbId}"`);

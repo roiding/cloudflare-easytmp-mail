@@ -55,11 +55,11 @@ function createMockFetch() {
     if (path === `/zones/${MOCK_ZONE_ID}/dns_records`) {
       return { status: 200, ok: true, json: async () => ({ success: true, result: [] }) };
     }
-    if (path.includes('/workers/scripts/')) {
+    if (path.includes('/workers/scripts')) {
       return {
         status: 200,
         ok: true,
-        json: async () => ({ success: true, result: { id: 'script' } }),
+        json: async () => ({ success: true, result: [{ id: 'easytmp-mail-inbound' }] }),
       };
     }
     if (path.includes('/pages/projects/easytmp-mail/domains')) {

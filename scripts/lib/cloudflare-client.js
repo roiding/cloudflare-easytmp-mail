@@ -241,14 +241,10 @@ export class CloudflareClient {
    * GET /accounts/{account_id}/workers/scripts/{script_name}
    */
   async getWorkerScript(scriptName, accountId = this.accountId) {
-    try {
-      return await this.request(`/accounts/${accountId}/workers/scripts/${scriptName}`);
-    } catch (err) {
-      if (err instanceof CloudflareApiError && err.status === 404) {
-        return null;
-      }
-      throw err;
-    }
+    const scripts = await this.listWorkerScripts(accountId);
+    return (
+      (Array.isArray(scripts) ? scripts : []).find((script) => script.id === scriptName) || null
+    );
   }
 
   /**

@@ -237,18 +237,17 @@ describe('CloudflareClient Integration Boundary', () => {
   });
 
   describe('Worker Scripts API', () => {
-    it('returns null on 404 for getWorkerScript and handles delete', async () => {
+    it('checks the Worker script list instead of parsing script content as JSON', async () => {
       const mockFetch = createMockFetch((url, opts) => {
         if (opts.method === 'DELETE') {
           return { json: { success: true, result: null } };
         }
-        if (url.includes('missing-worker')) {
-          return {
-            status: 404,
-            json: { success: false, errors: [{ code: 10007, message: 'Script not found' }] },
-          };
-        }
-        return { json: { success: true, result: { id: 'existing-worker' } } };
+        return {
+          json: {
+            success: true,
+            result: [{ id: 'existing-worker', modified_on: '2026-11-01' }],
+          },
+        };
       });
 
       const client = new CloudflareClient({
