@@ -2,13 +2,13 @@
 
 规范版本：1.0.0
 定义日期：2026-11-03
-状态：接口合同与本地实现已完成并通过自动测试；尚未部署线上服务。
+状态：v1 已上线并通过真实收信、D1、DMARC、7 天保留、HTML 清洗与 Web UI 端到端验收。
 
 [openapi.yaml](openapi.yaml) 是接口字段、类型、约束和示例的机器可读规范，可导入支持 OpenAPI 3.1 的工具。本页说明调用流程及边界语义；两者应同步维护。
 
 ## 1. 地址与通用规则
 
-计划服务地址：`https://inbox.cottage.dpdns.org`，业务 API 前缀为 `/api/v1`。`/api/health` 是独立的存活检查端点。
+当前生产示例：`https://inbox.cottage.dpdns.org`；自建部署时替换为配置中的 `webHostname`。业务 API 前缀为 `/api/v1`，`/api/health` 是独立存活检查端点。
 
 - 所有接口公开免密，无需注册、创建邮箱、API Key、Cookie 或 `Authorization`。
 - 请求和响应字段使用 `camelCase`。JSON 为 UTF-8；时间统一使用 **Unix 毫秒整数**。
@@ -48,7 +48,7 @@ X-Content-Type-Options: nosniff
 | 点     | 不允许连续两个点                                               |
 | 大小写 | ASCII 大写转小写，`Signup` 和 `signup` 指向同一邮箱            |
 | 不支持 | 完整邮箱地址、`+` 子地址、空格、Unicode 邮箱名，不自动裁剪空格 |
-| 地址   | 规范化名称加 `@cottage.dpdns.org`，总长度最多 82 个字符        |
+| 地址   | 规范化名称加当前部署的 `mailDomain`；当前生产示例为 `@cottage.dpdns.org` |
 
 输入校验正则：
 
@@ -56,7 +56,7 @@ X-Content-Type-Options: nosniff
 ^(?!.*\.\.)[A-Za-z0-9](?:[A-Za-z0-9._-]{0,62}[A-Za-z0-9])?(?![\s\S])
 ```
 
-`a`、`signup`、`test_01`、`test.name-2` 合法；`.test`、`test-`、`test..name`、`test+tag` 不合法。API 与收信入口采用同一规范化规则。随机接口生成 16 位小写字母/数字名称，不检查是否被其他人使用，也不预留地址。
+`a`、`signup`、`test_01`、`test.name-2` 合法；`.test`、`test-`、`test..name`、`test+tag` 不合法。API 与收信入口采用同一规范化规则。随机接口生成 16 位小写字母/数字名称，不检查是否被其他人使用，也不预留地址。自建到更长的 `mailDomain` 时，外部发信系统还必须满足其自身的完整邮箱地址长度限制。
 
 `{id}` 是服务生成的小写 UUID v4，例如 `8c746a0e-7f90-4b13-a71c-9db724e57c02`。客户端应原样使用，不从 ID 推断时间。格式错误返回 `400 invalid_message_id`。
 
@@ -71,7 +71,7 @@ X-Content-Type-Options: nosniff
 | DELETE | `/api/v1/messages/{id}`             | 无                                                               | `200 DeleteMessageResponse` |
 | DELETE | `/api/v1/mailboxes/{name}/messages` | `before`                                                         | `200 ClearMailboxResponse`  |
 
-不存在创建邮箱、邮箱过期、用户鉴权、附件下载或全局管理清理接口。下面的请求地址与数据均为合同示例，不表示服务已上线。
+不存在创建邮箱、邮箱过期、用户鉴权、附件下载或全局管理清理接口。下面的请求地址与数据均为合同示例；当前生产实例已经上线并通过真实邮件验收。
 
 ## 4. 服务时间与随机地址
 
@@ -108,14 +108,14 @@ X-Content-Type-Options: nosniff
 | ------------ | ---------------------------- | ------------------------------------------------------------------------------------------ |
 | `since`      | 非负毫秒整数 / 省略          | `receivedAt >= since`，包含下界；省略时查询全部未过期邮件；未来值合法，当前可返回空列表    |
 | `fromDomain` | 域名字符串 / 省略            | 精确匹配解析后的 From 头邮箱域名，ASCII 大小写不敏感，不自动匹配子域名                     |
-| `subject`    | 1–200 个 Unicode 码点 / 省略 | 标题的字面子串；仅 ASCII 字母忽略大小写，不做 Unicode 归一化，不解释正则和 `%`、`_` 通配符 |
+| `subject`    | 1–200 个 Unicode 码点 / 省略 | 标题的字面子串；对 ASCII 大小写忽略，Unicode 按字面比较，不做归一化，不解释正则和 `%`、`_` 通配符 |
 | `dmarcPass`  | `true` 或 `false` / 省略     | 精确匹配邮件记录的认证标记；省略时不筛选                                                   |
 | `limit`      | 1–100 整数 / `20`            | 每页最多返回多少条，超范围返回 `400`                                                       |
 | `cursor`     | 上一页返回的游标 / 省略      | 读取更旧的一页；首次请求和每轮接码轮询均省略                                               |
 
 所有筛选条件以 **AND** 组合。`fromDomain` 不接受前导 `@`、URL、尾点或通配符；国际化域名使用 ASCII/Punycode，长度不超过 253，标签长度不超过 63。`example.com` 不匹配 `mail.example.com`。没有可解析 From 邮箱的邮件不匹配域名筛选。
 
-`dmarcPass: false` 仅表示没有记录为 pass，可能是 fail、none 或缺失。当前收信草案默认只接受 DMARC pass，因此查询 false 可能一直为空；接收策略与查询格式是两个独立规则。
+`dmarcPass: false` 仅表示没有记录为 pass，可能是 fail、none 或缺失。生产默认只保存通过 Cloudflare DMARC 校验的邮件，因此 `dmarcPass=false` 通常为空；接收策略与查询格式是两个独立规则。
 
 示例：只读取本次接码开始后、指定发件域且标题含“验证码”的邮件。
 
@@ -416,17 +416,96 @@ curl --request DELETE \
 | 404  | `route_not_found`      | 未定义的 `/api/*` 路径，响应为 JSON，不回退到网页                                      |
 | 405  | `method_not_allowed`   | 已有路径的方法不受支持，查看 `Allow`                                                   |
 | 413  | `request_too_large`    | HTTP 请求体超过 8192 字节                                                              |
-| 429  | `rate_limited`         | 请求频率过高，按 `Retry-After` 重试                                                    |
+| 429  | `rate_limited`         | 请求频率过高；若响应带 `Retry-After` 则按其等待                                   |
 | 500  | `internal_error`       | 未预期的应用错误，采用有上限的退避                                                     |
-| 503  | `service_unavailable`  | 暂时不可用，例如 D1 请求失败，按 `Retry-After` 重试                                    |
+| 503  | `service_unavailable`  | 暂时不可用，例如 D1 请求失败；应用响应带 `Retry-After`                           |
 
-应用生成的 `429` 和 `503` 必须包含正整数秒的 `Retry-After`，例如 `Retry-After: 3`，浏览器客户端可通过 CORS 读取。实际限流阈值属于部署配置，不改变以上字段合同。
+当前应用实现会为 D1 不可用等 `503` 返回正整数秒的 `Retry-After`，例如 `Retry-After: 3`，浏览器客户端可通过 CORS 读取。Cloudflare 或其前置限流层也可能返回 `429`；具体阈值属于部署配置，不改变上述错误体合同。
 
 本 API 无鉴权错误 `401/403`、邮箱创建冲突 `409` 或邮箱到期 `410`。合法邮箱名永远可查询，无可读邮件就返回正常空列表。多个参数同时有错时，服务至少报告一项，不规定错误检查顺序。
 
-## 10. 实现验收边界
+## 10. 可直接接入的最小客户端
 
-实现阶段需用自动化测试验证以下实际行为；当前仅完成合同定义和规范校验：
+以下 TypeScript 代码适合在 Cloudflare Workers、Node.js 20+ 或现代浏览器中直接改写。它保留任务固定的 `since`，每轮从第一页读取，按 `id` 去重，不自动推进时间下界，因此不会漏掉稍后入库的邮件。
+
+```ts
+export interface Mail {
+  id: string;
+  address: string;
+  from: { name: string; address: string | null; domain: string | null };
+  subject: string;
+  preview: string;
+  receivedAt: number;
+  expiresAt: number;
+  dmarcPass: boolean;
+  codeCandidates: Array<{ value: string; source: 'subject' | 'textBody'; context: string }>;
+  hasHtml: boolean;
+}
+
+export class EasyTmpClient {
+  constructor(readonly baseUrl: string) {}
+
+  private async json<T>(path: string, init?: RequestInit): Promise<T> {
+    const response = await fetch(`${this.baseUrl.replace(/\/$/, '')}${path}`, init);
+    const body = await response.json().catch(() => null);
+    if (!response.ok) {
+      const retryAfter = Number(response.headers.get('Retry-After') || 0) || undefined;
+      throw Object.assign(new Error(body?.message || `HTTP ${response.status}`), {
+        status: response.status,
+        code: body?.error,
+        retryAfter,
+        requestId: response.headers.get('X-Request-Id') || undefined,
+      });
+    }
+    return body as T;
+  }
+
+  health() {
+    return this.json<{ status: 'ok'; apiVersion: '1'; serverTime: number }>('/api/health');
+  }
+
+  randomAddress() {
+    return this.json<{ name: string; address: string; serverTime: number }>(
+      '/api/v1/addresses/random',
+    );
+  }
+
+  messages(name: string, query: { since: number; fromDomain?: string; subject?: string }) {
+    const params = new URLSearchParams({ since: String(query.since), limit: '20' });
+    if (query.fromDomain) params.set('fromDomain', query.fromDomain);
+    if (query.subject) params.set('subject', query.subject);
+    return this.json<{ messages: Mail[]; pagination: { nextCursor: string | null } }>(
+      `/api/v1/mailboxes/${encodeURIComponent(name)}/messages?${params}`,
+    );
+  }
+
+  async waitForMail(
+    name: string,
+    since: number,
+    options: { timeoutMs?: number; intervalMs?: number } = {},
+  ): Promise<Mail> {
+    const deadline = Date.now() + (options.timeoutMs ?? 120_000);
+    const seen = new Set<string>();
+    while (Date.now() < deadline) {
+      const result = await this.messages(name, { since });
+      for (const mail of result.messages) {
+        if (!seen.has(mail.id)) return mail; // 持久化业务状态时先保存，再返回
+        seen.add(mail.id);
+      }
+      await new Promise((resolve) => setTimeout(resolve, options.intervalMs ?? 3000));
+    }
+    throw new Error('Timed out waiting for email');
+  }
+}
+```
+
+上面的例子只用于第一页通常就包含目标邮件的情况。需要遍历全部匹配邮件时，从第一页开始，保留相同 `since`、`fromDomain`、`subject` 和 `dmarcPass`，把 `nextCursor` 原样传回；每轮轮询重新从不带 `cursor` 的第一页开始。客户端应持久化已处理的 `id`，或者只在本次任务内维护去重集合，避免重复处理同一邮件。
+
+实际接码顺序为：生成或指定邮箱名 -> 调用 `/api/health` 或随机地址接口取得固定 `since` -> 将地址交给外部发信流程 -> 每隔约 3 秒查询列表 -> 按 `id` 去重 -> 从 `codeCandidates` 选择候选或读取详情 -> 需要时删除本次任务已处理的邮件。不要把 `since` 更新成最新的 `serverTime`，否则在发送与入库之间延迟的邮件可能被漏掉。
+
+## 11. 实现与生产验收范围
+
+自动化测试与实际生产验收覆盖以下行为：
 
 - 邮箱名大小写归一、合法字符和 1/64 字符边界；发送到同名地址与 API 查询规则一致。
 - `since` 含边界、`before` 不含边界、7 天到期边界，所有接口使用毫秒。
@@ -434,6 +513,6 @@ curl --request DELETE \
 - 任务固定 `since` 时，延迟入库的邮件可在后续轮询查到。
 - 前导零验证码保持字符串；无候选、无发件名、无 HTML 和 HTML 超限均符合已定义空值格式。
 - 单封读取与删除对“已删除/过期”的不同状态约定，清空的时间边界和删除数量。
-- 非法参数、公开跨域调用、`OPTIONS`、统一错误头以及 `429/503` 的 `Retry-After`。
+- 非法参数、公开跨域调用、`OPTIONS`、统一错误头；应用 `503` 的 `Retry-After`，以及客户端对上游 `429` 的兼容处理。
 
-规范校验只证明 OpenAPI 和示例自洽，不代表云端服务已经按合同运行。
+生产实例 `https://inbox.cottage.dpdns.org` 已通过真实邮件投递、`dmarcPass=true`、验证码/链接提取、HTML 清洗、7 天精确到期和 Web UI 邮件详情验收。自建部署仍需用 `pnpm onboard` 的冒烟测试与一封真实邮件完成同样验收。

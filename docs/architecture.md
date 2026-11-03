@@ -1,9 +1,10 @@
 # Cloudflare EasyTmp Mail 架构设计
 
-状态：Draft v0.11，核心使用方式、域名和页面参考已确认，API v1 合同已定义；部署采用 Pages + Email Worker，旧服务清理对象为 cottage.dpdns.org
+状态：v1 已生产上线。采用 Cloudflare Pages + Pages Functions + Email Worker + D1；当前生产实例为 inbox.cottage.dpdns.org，代码与部署脚本支持通过根配置替换域名。
 日期：2026-11-03
-邮件域名：`cottage.dpdns.org`
-网页和 API 域名：`inbox.cottage.dpdns.org`（已确认）
+当前生产邮件域名：`cottage.dpdns.org`
+当前生产网页和 API：`inbox.cottage.dpdns.org`
+自建配置入口：根目录 `easytmp.config.json`（`mailDomain` 必填，网页主机名默认 `inbox.<mailDomain>`）
 
 已确认：网页和 API 完全公开，无需登录、密钥或 Token；邮箱地址无需创建或激活；Web UI 和 API 都支持指定邮箱名或随机生成；任何人都可按邮箱名读取未删除、未过期的邮件；每封邮件自接收起保留 7 天，地址本身不过期。
 
@@ -11,11 +12,11 @@
 
 邮件详情已确认：保留原邮件的基本排版和验证按钮。实现方案为保存清洗后的 HTML 并隔离展示，同时保留纯文本用于 API 读取、验证码提取和展示回退。
 
-页面参考：[Temp Mail 中文站](https://temp-mail.org/zh/)。用户提出可使用 Cloudflare Pages，不必限定单 Worker；当前草案调整为 Pages + Pages Functions + Email Worker + D1。
+页面参考：[Temp Mail 中文站](https://temp-mail.org/zh/)。实际部署采用 Cloudflare Pages + Pages Functions + Email Worker + D1。
 
-部署要求：上线时清理 `cottage.dpdns.org` 上旧临时邮箱的相关 MX、Email Routing 规则及对应 Worker，在同一收件域重建新服务，网页和 API 使用 `inbox.cottage.dpdns.org`。`roiding.dpdns.org` 不在本次清理范围；具体旧资源在部署时核对。
+部署方式：运行 `pnpm onboard --dry-run` 只读预检，再运行 `pnpm onboard` 完成 OAuth 资源发现、D1 migration、Worker/Pages 部署、Email Routing、自定义域名与冒烟测试。运维与替换域名步骤见 [agent 上线手册](AGENT_RUNBOOK.md)。
 
-API v1 已定义：[接口说明](api.md)与 [OpenAPI 3.1 规范](openapi.yaml)包含完整参数、JSON 字段、时间筛选、分页、删除和错误格式；目前属于待实现合同，不表示服务已上线。
+API v1 已上线：[接口说明](api.md)与 [OpenAPI 3.1 规范](openapi.yaml)包含完整参数、JSON 字段、时间筛选、分页、删除和错误格式。当前生产实例已通过真实收信、D1、DMARC、7 天保留、HTML 清洗和 Web UI 验收。
 
 ## 1. 目标
 
@@ -55,7 +56,7 @@ API 客户端 ──► └── /api/*    Pages Functions（Hono）
                                   ▲
                                   │ 写入 / 过期清理
 外部邮件 ──► Email Routing ──► Email Worker
-            cottage.dpdns.org     ├── email()      接收、解析并保存邮件
+            <mailDomain>          ├── email()      接收、解析并保存邮件
 Cron Trigger ────────────────────►└── scheduled()  清理过期邮件
 ```
 
@@ -63,7 +64,7 @@ Cron Trigger ────────────────────►└�
 
 网页不必和收信处理放进同一个 Worker。当前推荐：
 
-- **Cloudflare Pages**：部署 React + Vite 的静态网页，绑定 `inbox.cottage.dpdns.org`。
+- **Cloudflare Pages**：部署 React + Vite 的静态网页，绑定配置的 `webHostname`；当前生产为 `inbox.cottage.dpdns.org`。
 - **Pages Functions**：在同一站点的 `/api/*` 提供 HTTP API，使用 Hono 和 D1 Binding。
 - **Email Worker**：提供 `email()` 邮件入口和 `scheduled()` 定时清理入口。
 - **D1**：Pages Functions 和 Email Worker 绑定同一个生产数据库，共享邮件 schema 与查询规则。
@@ -82,16 +83,16 @@ Cron Trigger ────────────────────►└�
 
 ### 3.2 域名
 
-- 邮件地址域：`@cottage.dpdns.org`
-- 网页和 API：`https://inbox.cottage.dpdns.org`（已确认）
+- 邮件地址域：配置的 `mailDomain`；当前生产为 `@cottage.dpdns.org`
+- 网页和 API：配置的 `https://<webHostname>`；当前生产为 `https://inbox.cottage.dpdns.org`
 - Web UI 与 API 同源部署；公开 API 同时允许无凭据跨域调用。
 
 2026-11-03 只读 DNS 查询确认：
 
-- `cottage.dpdns.org` 与 `roiding.dpdns.org` 均有 MX 指向 Cloudflare 的 `route1`、`route2`、`route3.mx.cloudflare.net`。
+- 当前生产域 `cottage.dpdns.org` 使用 Cloudflare Email Routing 的 `route1`、`route2`、`route3.mx.cloudflare.net`；新部署按根配置中的 `mailDomain` 自动核定，不操作无关 Zone。
 - MX 只能确认邮件交给 Cloudflare，不能据此识别内部 Email Routing 规则或 Worker 名称。
-- 用户已更正：需要清理的旧临时邮箱位于 `cottage.dpdns.org`；部署前需在正确的 Cloudflare 账户和 zone 核对具体路由及 Worker。
-- 新服务部署时检查 `cottage.dpdns.org` 的 MX、SPF 和现有地址规则，并将 catch-all 配置为新 Email Worker。
+- 当前生产域 `cottage.dpdns.org` 的旧临时邮箱与新服务迁移已完成；部署时核对精确账户与 Zone，不操作其他域名。
+- `pnpm onboard` 在正式修改前检查目标域的 Email Routing、MX、SPF、DKIM、现有 Catch-all 与 Worker 清单，再按配置完成切换。
 
 ### 3.3 技术栈
 
@@ -139,7 +140,7 @@ Cron Trigger ────────────────────►└�
 
 首版不需要 `mailboxes` 表，也不保存邮箱创建时间、邮箱有效期或邮箱专属 Token。邮件直接关联规范化的收件地址。
 
-`address` 规范化为小写，域必须是 `cottage.dpdns.org`。邮箱名（local part）为 1–64 个 ASCII 字符，允许字母、数字、点、下划线和连字符，首尾必须是字母或数字，不允许连续点；ASCII 大写转小写，不支持 `+` 子地址。Web UI 和 API 使用固定域名补全地址，收信和查询采用相同规则，详见 [API 邮箱名约定](api.md#2-邮箱名与-id)。
+`address` 规范化为小写，域必须是当前部署配置的 `mailDomain`。邮箱名（local part）为 1–64 个 ASCII 字符，允许字母、数字、点、下划线和连字符，首尾必须是字母或数字，不允许连续点；ASCII 大写转小写，不支持 `+` 子地址。Web UI 和 API 使用固定域名补全地址，收信和查询采用相同规则，详见 [API 邮箱名约定](api.md#2-邮箱名与-id)。
 
 随机功能使用密码学随机源生成 16 位小写字母/数字邮箱名，不注册、占用或独占地址。再次使用同一邮箱名会进入同一收件箱。
 
@@ -233,7 +234,7 @@ CREATE TABLE messages (
 - 相同邮箱名仍可接收和查询新邮件，不需要重新创建。
 - 不存在“邮箱到期”的 `410 Gone` 状态。
 
-容量上限和收信限流策略待讨论。原草案“单邮箱超过 20 封时删除最旧邮件”的策略不再作为默认规则，以免提前删除仍在 7 天保留期内的邮件。
+当前实现不因单邮箱邮件数量而提前删除记录；邮件仅在 7 天到期、被 API 删除或被定时清理时移除。容量与速率限制由 Cloudflare 部署配置管理。
 
 ## 7. 清理策略
 
@@ -276,7 +277,7 @@ D1 的过期删除不等于 Cloudflare 平台所有备份或内部副本立即�
 - HTML 按钮和单独提取的链接使用相同 URL 校验规则：仅允许 `https:`，拒绝包含用户名或密码的 URL。
 - 限制链接数量、纯文本长度和清洗后 HTML 大小。
 - 验证码只是候选值，页面和 API 都应明确这一点。
-- 链接操作可查看完整目标域名；远程图片沿用默认不自动加载的草案，不托管附件或内联图片。
+- 链接操作可查看完整目标域名；远程图片默认不自动加载，不托管附件或内联图片。
 - CSP 与 iframe 载入方式配套验证，允许已清洗的排版样式并阻止可执行内容和外部资源加载。
 - 标题、发件人、验证码和纯文本正文使用文本节点展示；没有可用 HTML 时，详情回退为纯文本。
 
@@ -293,7 +294,7 @@ D1 的过期删除不等于 Cloudflare 平台所有备份或内部副本立即�
 
 规范版本：1.0.0；业务基础路径：`/api/v1`。所有接口公开免密，无需鉴权请求头或会话。
 
-完整合同见 [API 接口文档](api.md)和 [OpenAPI 3.1](openapi.yaml)。本节保留接口概览，具体字段、边界和错误格式以这两份同步维护的文件为准。规范与本地运行实现已完成，线上部署尚未执行。
+完整合同见 [API 接口文档](api.md)和 [OpenAPI 3.1](openapi.yaml)。本节保留接口概览，具体字段、边界和错误格式以这两份同步维护的文件为准。生产实例已经上线并通过真实邮件验收。
 
 | 方法   | 路径                                | 用途 / 成功返回                                                   |
 | ------ | ----------------------------------- | ----------------------------------------------------------------- |
@@ -384,7 +385,8 @@ D1 的过期删除不等于 Cloudflare 平台所有备份或内部副本立即�
 注册项目配置：
 
 ```env
-EASY_TMP_MAIL_BASE_URL=https://inbox.cottage.dpdns.org
+EASY_TMP_MAIL_BASE_URL=https://<webHostname>
+# 当前生产示例：https://inbox.cottage.dpdns.org
 ```
 
 客户端只需配置服务地址，不需要任何访问凭据。业务项目负责：
@@ -393,67 +395,57 @@ EASY_TMP_MAIL_BASE_URL=https://inbox.cottage.dpdns.org
 - 并发任务尽量选用不同的随机邮箱名，避免共享同一收件箱。
 - 在触发外部发信前保存随机地址接口或 `/api/health` 返回的 `serverTime`，作为整个任务固定的 `since`，避免复用邮箱名时读取旧验证码。
 - 每轮从第一页查询，按 ID 去重；翻页时沿用相同筛选条件并传回 `nextCursor`。
-- 对 `429/503` 遵循 `Retry-After`，网络错误和 `500` 采用有上限的退避。
+- 应用 `503` 按其 `Retry-After` 退避；上游 `429` 若带同名响应头也遵循，网络错误和 `500` 采用有上限的退避。
 - 邮件发送方和 DMARC 校验。
 - 验证码选择的人工确认或业务侧规则。
 - 按需提前删除本次任务的邮件，避免误清空同名邮箱中其他任务的邮件；其余邮件按 7 天规则过期。
 
 ## 12. 部署与迁移
 
+推荐的零参数上线流程为 `pnpm onboard --dry-run` 后运行 `pnpm onboard`。根配置示例：
+
 ```text
 Cloudflare account
-├── Pages: easytmp-mail
+├── Pages: <pages.projectName>
 │   ├── Static UI
 │   ├── Pages Functions: /api/*
 │   ├── D1 Binding: DB
-│   └── Custom Domain: inbox.cottage.dpdns.org
-├── Worker: easytmp-mail-inbound
+│   └── Custom Domain: <webHostname>
+├── Worker: <worker.name>
 │   ├── email()
 │   ├── scheduled()
 │   └── D1 Binding: DB
-├── D1: easytmp-mail
-└── Email Routing: cottage.dpdns.org
-    └── Catch-all -> Worker: easytmp-mail-inbound
+├── D1: <d1.databaseName>
+└── Email Routing: <mailDomain>
+    └── Catch-all -> Worker: <worker.name>
 ```
 
-资源名称为草案，部署前检查账户内是否已被占用。新 Worker 使用可辨认的新名称，与待删除的旧 Worker 区分。
+当前生产实例为 `inbox.cottage.dpdns.org` / `cottage.dpdns.org`。具体命令、OAuth 权限、幂等规则、备份和真实邮件验收见 [agent 上线手册](AGENT_RUNBOOK.md)。
 
-### 12.1 旧服务清理要求
+资源名可由 `easytmp.config.json` 显式指定，也可由域名自动派生。`onboard` 在正式修改前先展示发现结果与拟变更；已有同名资源默认复用。
 
-用户已明确要求并更正域名：部署本项目时，删除 `cottage.dpdns.org` 旧临时邮箱相关的 MX 和对应 Worker，并在同一域名重新配置服务。`roiding.dpdns.org` 不属于清理对象。此要求已纳入部署范围，当前仍在设计阶段，尚未执行云端删除。
+### 12.1 部署顺序
 
-| 对象                                  | 当前依据                                       | 部署时处理                                                                  |
-| ------------------------------------- | ---------------------------------------------- | --------------------------------------------------------------------------- |
-| `cottage.dpdns.org` 旧邮件 MX         | DNS 可见 Cloudflare MX，用户确认该域存在旧服务 | 核对记录 ID 并备份后，删除旧临时邮箱相关记录，在同次切换中配置新服务所需 MX |
-| 旧 Email Routing 地址规则 / catch-all | 用户说明存在旧临时邮箱，具体规则未读取         | 查明指向的 Worker，先解除旧引用，再删除对应旧规则                           |
-| 旧临时邮箱 Worker                     | 具体脚本名待从 Cloudflare 账户核实             | 确认用途及关联域名，备份代码和配置后删除对应脚本                            |
-| 旧 Worker 的 D1 / KV / R2             | 目前未核查                                     | 清理 Worker 不连带删除这些数据资源                                          |
-| `cottage.dpdns.org` 新邮件路由        | 新服务沿用旧服务所在的收件域                   | 重建所需 MX/SPF 和邮件路由，配置 catch-all 指向新 Worker                    |
+1. 在根配置中填写 `mailDomain`，可选指定网页主机名、资源名和已有资源 ID。
+2. 由 OAuth 会话发现或校验 Account、Zone、D1、Pages 与 Worker；已有目标资源复用，缺失资源创建。
+3. 执行 remote D1 migration，部署绑定同一 D1 的 Email Worker 和 Pages Functions，再发布静态网页。
+4. 核对 Email Routing，保留平台 MX/SPF/DKIM，将 Catch-all 指向新 Worker，并绑定 `webHostname` 到 Pages。
+5. 使用 `pnpm onboard --dry-run` 审查流量切换提案；正式执行 `pnpm onboard`。
+6. 从外部邮箱真实投递，验证网页与 API 免密读取、DMARC、HTML、提取结果与精确 7 天保留。
+7. 真实收信通过后，才按清单清理不再引用的旧 Worker；共享 D1、KV、R2 与 Email Routing 平台记录保留。
 
-只清理已核对属于旧临时邮箱的资源。Cloudflare 托管或锁定的 MX 记录，按其 Email Routing 停用/解锁流程处理；保留其他用途的 DNS 记录和共享资源。若发现同一旧 Worker 被多个域名引用，先核对这些引用与迁移范围，再执行删除。
+生产实例的旧服务替换已完成。新部署不预设旧 Worker 名，以 onboarding 的只读清单和显式清理步骤为准。
 
-### 12.2 部署顺序
-
-1. 确认账户、zone 和 `cottage.dpdns.org` 的旧服务，列出并备份旧 MX、路由及 Worker 配置，确定具体清理对象。
-2. 创建新 D1 并执行 migration，部署新的 Email Worker 和 Cron Trigger，再部署绑定同一 D1 的 Pages/Functions。
-3. 使用预览地址验证页面、API 和新 Worker，完成接收与清理测试；确认新服务准备好后进入旧资源清理阶段。
-4. 解除 `cottage.dpdns.org` 旧临时邮箱的邮件路由，清理其相关 MX；在同次切换中配置新服务所需 MX/SPF 和 Email Routing，将 catch-all 指向已部署的新 Email Worker。
-5. 在 Pages 绑定 `inbox.cottage.dpdns.org` 并验证 HTTPS，核对该域现有绑定后完成网页切换。
-6. 从外部邮箱真实投递，验证网页与 API 免密读取、HTML 排版和验证按钮、7 天逻辑过期及定时清理。
-7. 新服务验证通过后，确认旧 Worker 已无本次迁移之外的引用，删除对应旧 Worker，记录实际处理的资源并复查最终路由。
-
-此次为同一收件域上的服务替换，新代码和运行资源准备就绪后再切换邮件路由。部署完成时记录实际资源名、最终 DNS/路由和验证结果。
-
-### 12.3 配置项
+### 12.2 配置项
 
 | 名称                        | 类型       | 使用位置 / 说明                                             |
 | --------------------------- | ---------- | ----------------------------------------------------------- |
-| `MAIL_DOMAIN`               | Var        | Pages Functions 与 Email Worker；固定为 `cottage.dpdns.org` |
+| `MAIL_DOMAIN`               | Var        | Pages Functions 与 Email Worker；来自根配置的 `mailDomain` |
 | `MESSAGE_RETENTION_SECONDS` | 共享常量   | 固定 604800 秒（7 天），不能按邮箱覆盖                      |
 | `MAX_EMAIL_BYTES`           | Var        | Email Worker；单封邮件大小上限                              |
 | `MAX_TEXT_CHARS`            | Var        | Email Worker；纯文本正文长度上限                            |
 | `MAX_HTML_BYTES`            | Var        | Email Worker；清洗后 HTML 的 UTF-8 字节上限                 |
-| `REQUIRE_DMARC_PASS`        | Var        | Email Worker；生产默认 `true`，属于收信校验草案             |
+| `REQUIRE_DMARC_PASS`        | Var        | Email Worker；生产默认 `true`；不应放宽为信任任意认证头       |
 | `DB`                        | D1 Binding | Pages Functions 与 Email Worker 绑定同一个生产数据库        |
 
 静态构建目录在 Pages 项目配置，不再使用 Worker 的 `ASSETS` Binding；Cron 只配置在 Email Worker。
@@ -518,10 +510,10 @@ Cloudflare account
 - 已确认：网页和 API 完全公开，无登录、密钥、Token 或邮箱归属验证。
 - 已确认：首页自动生成随机邮箱，顶部可修改邮箱名和复制地址，下方自动刷新邮件并提供验证码快捷复制。
 - 已确认：邮件详情保留基本排版和验证按钮，同时保留纯文本用于读取和提取验证码。
-- 已确认：邮件域名为 `cottage.dpdns.org`，网页和 API 共用 `inbox.cottage.dpdns.org`。
+- 当前生产：邮件域名为 `cottage.dpdns.org`，网页和 API 共用 `inbox.cottage.dpdns.org`；自建部署通过根配置替换。
 - 已确认：不提供附件下载、预览或保存，带附件邮件仍按接收条件处理正文。
-- 已确认：页面参考 Temp Mail 中文站；不必限定单 Worker，当前草案采用 Pages/Functions + Email Worker。
-- 已记录并更正部署要求：清理 `cottage.dpdns.org` 旧临时邮箱的相关 MX、路由和对应 Worker，在同一收件域重建服务。
+- 页面参考 Temp Mail 中文站；实际采用 Pages/Functions + Email Worker。
+- 生产迁移已完成：新 Catch-all 接管后清理旧 Worker，平台 MX/SPF/DKIM 保留。
 - API v1 合同已定义：毫秒时间筛选、游标分页、完整字段、删除结果和错误格式；客户端轮询建议每 3 秒。
 
 ### Phase 1：迁移与 API 核心
@@ -541,8 +533,8 @@ Cloudflare account
 ### Phase 3：清理与部署
 
 - 完成 Cron 自动清理和运行指标。
-- 按第 12 节核对和备份旧资源，清理 `cottage.dpdns.org` 的旧临时邮箱配置及对应 Worker。
-- 部署 Pages、Functions、Email Worker，配置新域名和 Email Routing。
+- 按第 12 节核对和备份旧资源，仅清理已确认不再使用的旧 Worker；共享 Email Routing 平台记录保留。
+- 部署 Pages、Functions、Email Worker，按根配置域名完成 Email Routing 与网页绑定。
 - 做真实邮件 smoke test。
 
 ### Phase 4：注册项目接入
@@ -571,15 +563,15 @@ Cloudflare account
 
 ### 已确认：保留邮件排版和验证按钮
 
-邮件详情保留原邮件的基本排版和验证按钮，用户可点击链接完成验证。草案采用清洗后的 HTML 配合沙箱 iframe 展示，并保存纯文本供 API、验证码识别和展示回退使用。两种正文共用 7 天保留期。
+邮件详情保留原邮件的基本排版和验证按钮，用户可点击链接完成验证。实现采用清洗后的 HTML 配合沙箱 iframe 展示，并保存纯文本供 API、验证码识别和展示回退使用。两种正文共用 7 天保留期。
 
 ### 已确认：域名安排
 
-邮件地址使用 `任意邮箱名@cottage.dpdns.org`；网页使用 `https://inbox.cottage.dpdns.org`，API 使用同一域名下的 `/api/v1`。域名选择已确认，实际部署和路由配置尚未执行。
+当前生产邮件地址使用 `任意邮箱名@cottage.dpdns.org`；网页使用 `https://inbox.cottage.dpdns.org`，API 使用同一域名下的 `/api/v1`。其他部署只需替换根配置中的域名。
 
 ### 已确认：不支持附件
 
-项目聚焦临时收信和接码，不提供附件下载、预览或保存。正文继续保留纯文本和清洗后的 HTML，验证按钮可点击。附件的存在本身不作为拒收理由，整封邮件仍遵守接收大小等限制。远程图片继续沿用默认不自动加载的展示草案。
+项目聚焦临时收信和接码，不提供附件下载、预览或保存。正文继续保留纯文本和清洗后的 HTML，验证按钮可点击。附件的存在本身不作为拒收理由，整封邮件仍遵守接收大小等限制。远程图片默认不自动加载。
 
 ### 已确认：页面参考与部署约束
 
@@ -587,11 +579,11 @@ Cloudflare account
 
 ### 已记录：旧临时邮箱迁移
 
-用户已更正清理对象为 `cottage.dpdns.org`：部署时删除其旧临时邮箱相关的 MX 和对应 Worker，执行前核对并备份具体资源，同时处理 Email Routing 规则。新服务沿用 `cottage.dpdns.org` 收信，网页和 API 使用 `inbox.cottage.dpdns.org`；`roiding.dpdns.org` 不在清理范围。当前未执行云端修改。
+生产迁移已完成：新服务沿用 `cottage.dpdns.org` 收信，网页和 API 使用 `inbox.cottage.dpdns.org`。Email Routing 平台 MX/SPF/DKIM 保留，旧 Worker 已单独清理；其他自建环境由 `pnpm onboard` 处理，不应对无关 Zone 操作。
 
 ### 已定义：API v1 与客户端轮询
 
-完整合同见 [api.md](api.md) 和 [openapi.yaml](openapi.yaml)。采用毫秒时间戳，支持包含下界的 `since`、发件域/标题/DMARC 筛选和游标分页。建议客户端每 3 秒轮询并固定任务开始时间，页面隐藏时暂停；具体限流阈值属于部署配置。
+完整合同见 [api.md](api.md) 和 [openapi.yaml](openapi.yaml)。采用毫秒时间戳，支持包含下界的 `since`、发件域/标题/DMARC 筛选和游标分页。生产 UI 每 3 秒轮询并固定任务开始时间，页面隐藏时暂停；具体限流阈值属于部署配置。
 
 ### 决策 1：技术栈
 
@@ -603,15 +595,9 @@ Cloudflare account
 
 ## 16. 当前状态
 
-- 已在独立的 `cloudflare-easytmp-mail` 项目创建架构文档。
-- 已按 2026-11-03 的讨论更新：公开免密使用，邮箱名直接查询，邮件保留 7 天；取消邮箱创建、邮箱到期和令牌鉴权流程。
-- 已确认首页流程：打开自动随机邮箱、顶部地址操作区、下方自动刷新的收件箱和验证码快捷复制。
-- 已确认邮件详情保留排版和验证按钮；已同步调整 HTML 存储、API 正文返回和隔离展示草案。
-- 已查看 Temp Mail 中文站，记录布局与配色参考。
-- 已核对 Pages Functions 的 D1 绑定、Worker 邮件入口和 Cron 文档，更新为 Pages + Email Worker 部署草案。
-- 已只读查询两个域名的 MX；用户已更正旧服务清理对象为 `cottage.dpdns.org`，具体旧 Worker 与路由尚未从账户核实。
-- 已定义 API v1 的完整格式、时间筛选、分页、删除与错误语义，并新增接口说明和 OpenAPI 3.1 文件；Pages Functions、D1 数据层、Email Worker 与 Web UI 的本地实现已完成并通过自动测试。
-- 本地 Pages Functions、Email Worker、D1 migration、React 页面及部署编排工具均已建立。
-- 本项目尚未创建 Pages、D1、Worker 或自定义域名。
-- 本次尚未修改两个域名的 DNS、Email Routing 或删除旧 Worker。
-- 注册自动化项目尚未接入本项目 API。
+- 生产实例已上线：网页与 API 为 `https://inbox.cottage.dpdns.org`，收件域为 `cottage.dpdns.org`。
+- Pages 项目、Pages Functions、Email Worker、D1 与 Email Routing Catch-all 已部署，使用同一个生产 D1。
+- 真实邮件已验证入库、`dmarcPass=true`、验证码和链接提取、HTML 清洗、精确 7 天到期与 Web UI 详情展示。
+- 旧 `email-code-worker` 已清理；平台 MX、SPF、DKIM 和新 D1 均保留。
+- 自动化测试、类型检查、Lint、格式检查和生产构建均通过。
+- 自建环境和域名替换见 [agent 上线手册](AGENT_RUNBOOK.md)；程序化接入见 [API 文档](api.md) 与 [OpenAPI](openapi.yaml)。

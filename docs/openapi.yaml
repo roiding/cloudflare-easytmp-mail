@@ -3,8 +3,11 @@ jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 info:
   title: Cloudflare EasyTmp Mail API
   version: 1.0.0
+  license:
+    name: MIT
+    identifier: MIT
   description: |
-    公开免密的临时邮箱 API v1。此文件定义接口合同；服务已在本地实现并通过测试，尚未部署线上环境。
+    公开免密的临时邮箱 API v1。当前生产实例已上线，并通过真实收信、D1、DMARC、7 天保留、HTML 清洗与 Web UI 端到端验收。
     无需创建邮箱，任何合法邮箱名均可查询；所有邮件接收后保留 7 天。
     全部时间使用 Unix 毫秒整数，字段名使用 camelCase。详见同目录 api.md。
 
@@ -25,7 +28,7 @@ info:
     不兼容的字段、类型或行为变更必须使用新主版本路径。
 servers:
   - url: https://inbox.cottage.dpdns.org
-    description: 计划部署的网页与 API 域名；当前规范不表示该服务已上线。
+    description: 当前生产示例。自建部署时替换为 easytmp.config.json 的 webHostname。
 security: []
 tags:
   - name: System
@@ -366,8 +369,9 @@ components:
         精确匹配记录中的 dmarcPass；省略时不筛选。
         只接受小写 true 或 false。false 表示未记录为 pass，不能区分 fail、none 或缺失。
       schema:
-        type: boolean
-      example: true
+        type: string
+        enum: ['true', 'false']
+      example: 'true'
     Limit:
       name: limit
       in: query
@@ -420,7 +424,7 @@ components:
       schema:
         $ref: '#/components/schemas/MessageId'
     RetryAfter:
-      description: 重试前应等待的整数秒数；应用产生的 429 和 503 必须携带，格式为 delta-seconds。
+      description: 重试前应等待的整数秒数；应用产生的 503 携带；前置限流层产生的 429 也可能携带，格式为 delta-seconds。
       required: true
       schema:
         type: string
@@ -454,9 +458,9 @@ components:
     MailboxAddress:
       type: string
       format: email
-      maxLength: 82
-      pattern: '^(?!.*\.\.)[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?@cottage\.dpdns\.org(?![\s\S])'
-      description: 规范化 name 加固定的 @cottage.dpdns.org。
+      maxLength: 317
+      pattern: '^(?!.*\.\.)[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?@[A-Za-z0-9](?:[A-Za-z0-9.-]{1,251}[A-Za-z0-9])(?![\s\S])'
+      description: 规范化 name 加部署配置中的 MAIL_DOMAIN，当前生产示例为 @cottage.dpdns.org。
     MessageId:
       type: string
       format: uuid
@@ -611,7 +615,9 @@ components:
               maximum: 2097152
               description: 实际读取的原始邮件总字节数，包括最终未保存的附件部分。
         - oneOf:
-            - properties:
+            - type: object
+              required: [hasHtml, htmlStatus, htmlBody]
+              properties:
                 hasHtml:
                   const: true
                 htmlStatus:
@@ -619,7 +625,9 @@ components:
                 htmlBody:
                   type: string
                   minLength: 1
-            - properties:
+            - type: object
+              required: [hasHtml, htmlStatus, htmlBody]
+              properties:
                 hasHtml:
                   const: false
                 htmlStatus:
@@ -842,7 +850,7 @@ components:
             requestTooLarge:
               $ref: '#/components/examples/RequestTooLarge'
     RateLimited:
-      description: 请求过于频繁；error 为 rate_limited，按 Retry-After 等待后重试。具体部署阈值不是 v1 字段合同的一部分。
+      description: 请求过于频繁；error 为 rate_limited。若响应携带 Retry-After 应等待后重试；具体阈值不是 v1 字段合同的一部分。
       headers:
         Cache-Control:
           $ref: '#/components/headers/NoStore'
@@ -850,8 +858,6 @@ components:
           $ref: '#/components/headers/PublicOrigin'
         X-Request-Id:
           $ref: '#/components/headers/RequestId'
-        Retry-After:
-          $ref: '#/components/headers/RetryAfter'
       content:
         application/json:
           schema:
