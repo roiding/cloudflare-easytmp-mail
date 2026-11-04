@@ -14,7 +14,8 @@ Cloudflare EasyTmp Mail 具备完全可移植性。任何使用者只需准备�
 2. **Cloudflare 账户与域名**：
    - 一个正常的 Cloudflare 免费或付费账户。
    - 一个已添加至该 Cloudflare 账户并处于 **Active（已激活，DNS 指向 Cloudflare）** 状态的域名（例如 `yourdomain.com`）。
-   - **Cloudflare Email Routing**：在该域名的 Cloudflare 控制台左侧进入 `Email Routing`（电子邮件路由），完成初始开通（确保状态为 `ready`，默认 DNS MX 记录已由平台写入）。
+   - `mailDomain` 必须是该 Active Cloudflare Zone 的名称，例如 `yourdomain.com`。
+   - 不需要提前创建 D1、Pages、Worker，也不需要手工开通 Email Routing。正式部署会创建资源、启用 Email Routing，并保留平台托管的 MX/SPF。
 3. **本地开发机器**：
    - 带有图形界面浏览器（推荐 Google Chrome）以完成官方 OAuth 授权跳转。
 
@@ -97,8 +98,9 @@ pnpm onboard
 **预检预期输出**：
 - 成功读取 `easytmp.config.json`。
 - 通过 OAuth 凭据自动解析出唯一的 Account ID。
-- 检索到目标 Zone 处于激活状态，且 Zone 名称与 `mailDomain` 严格相符。
+- 检索到名称与 `mailDomain` 一致的 Active Zone。
 - 探测远程 D1 数据库与 Pages 项目是否存在（若不存在，会标记将在 apply 时自动创建）。
+- 读取 Email Routing 状态；未启用时会明确标记为将在 apply 阶段自动启用。
 - 输出 `[easytmp] [DRY-RUN] Resource discovery complete. No remote changes made.`，未修改云端任何状态。
 
 #### 2. 正式执行云端部署（Apply）
@@ -112,12 +114,13 @@ pnpm onboard --apply
 **部署流程自动执行**：
 1. **自动创建基础设施**：在 Cloudflare 自动创建 D1 数据库（亚太区域，默认 `apac`）及 Pages 前端项目。
 2. **安全记录公开 ID**：将自动发现的 `accountId`、`zoneId` 和 `d1DatabaseId` 回写至 `easytmp.config.json`（仅持久化公开资源 UUID，绝不写入任何密钥）。
-3. **本地编译与质量门禁**：自动按序构建 shared、db、web 前端、Pages Functions 打包验证及 Inbound Worker 打包。
-4. **D1 Schema 迁移**：将建表及 7 天 CHECK 约束自动应用到远程 Cloudflare D1 生产库。
-5. **部署 Email Inbound Worker**：发布包含 MIME 解析、严格 DMARC 验证及 10 分钟 Cron 过期清理触发器的 Worker。
-6. **配置 Email Routing Catch-all**：自动拉取云端路由配置并在变更前自动生成本地 JSON 备份至 `.wrangler/backups/`，将收件 Catch-all 规则定向到新部署的 Email Worker。
-7. **部署 Pages 与绑定自定义域名**：打包 React 静态资源及同源 Pages Functions (`/api/*`)，配置 `inbox.yourdomain.com` 的代理 CNAME 并绑定到 Pages 项目。
-8. **自动执行冒烟测试**：对部署上线的站点执行 API 健康检查、CSP 安全标头与随机邮箱生成探测。
+3. **持久绑定 Pages 运行时**：把 D1 绑定 `DB`、`MAIL_DOMAIN` 和 `WEB_HOSTNAME` 写入 Pages 项目的生产配置。
+4. **本地编译与质量门禁**：自动按序构建 shared、db、web、Pages Functions 及 Inbound Worker。
+5. **D1 Schema 迁移**：将建表及 7 天 CHECK 约束自动应用到远程 D1。
+6. **部署 Email Inbound Worker**：发布 MIME 解析、严格 DMARC 验证及 10 分钟 Cron 过期清理逻辑，并等待 Worker 在账户中可见。
+7. **启用并配置 Email Routing**：自动启用路由、等待就绪，备份原 Catch-all 后将其指向新 Worker。
+8. **部署 Pages 与绑定自定义域名**：打包 React 与同源 `/api/*`，配置代理 CNAME，绑定并等待 `inbox.yourdomain.com` 激活。
+9. **自动执行冒烟测试**：等待 HTTPS 可用，再验证 `/api/config`、健康接口、安全标头、随机地址和空邮箱查询。
 
 **成功输出示例**：
 
@@ -182,7 +185,7 @@ curl -s "https://inbox.yourdomain.com/api/v1/mailboxes/qa892b1cf03a749e/messages
 
 **验收通过判定标准**：
 1. **秒级到达**：邮件在发送后数秒内即可被查询到。
-2. **认证状态**：`dmarcPass` 字段必须为 `true`（经 Cloudflare Email Routing MTA 认证）。
+2. **认证状态**：`dmarcPass` 字段必须为 `true`（经 Cloudflare Email Routing MTA 认证）。发信域必须通过 SPF、DKIM 与 DMARC；认证失败邮件会被服务拒绝。
 3. **验证码提取**：`codeCandidates` 数组中准确提取出 `439271`，且保留前导零与文本上下文。
 4. **生命周期校验**：`expiresAt` 必须精准等于 `receivedAt + 604800000`（精确 7 天后到期）。
 5. **排版呈现**：网页端或 `htmlBody` 字段清洗安全，保留基础样式且运行在安全沙箱环境中。
@@ -196,8 +199,8 @@ curl -s "https://inbox.yourdomain.com/api/v1/mailboxes/qa892b1cf03a749e/messages
 - **排查**：登录 Cloudflare 网页控制台，确认域名已添加且 DNS Nameservers 已更改生效（Status 必须为 `Active`）。
 
 ### Q2: 报错 `[EMAIL_ROUTING_NOT_READY]`
-- **原因**：该域名的 Cloudflare Email Routing 未完成开通或正处于初始化状态。
-- **排查**：进入 Cloudflare 域名的控制台 -> `Email Routing`，根据平台引导开通并添加推荐的 DNS 记录，确保界面显示 `Email Routing is enabled`。
+- **原因**：OAuth 权限不足、Zone 存在冲突 MX 记录，或 Email Routing 仍在同步。
+- **排查**：确认 Wrangler OAuth scope 包含 `email_routing:write`、`dns_records:edit`、`zone:read`。检查冲突 MX 但不要删除其他业务记录；检查后重新执行 `pnpm onboard --apply`。
 
 ### Q3: 报错 `Found N Cloudflare accounts`
 - **原因**：当前 OAuth 用户有权访问多个 Cloudflare 账户，系统无法自动猜测目标。
@@ -205,7 +208,7 @@ curl -s "https://inbox.yourdomain.com/api/v1/mailboxes/qa892b1cf03a749e/messages
 
 ### Q4: 网页能打开，但调用 API 或收信提示错误
 - **排查**：
-  1. 确认 Pages 是否正常绑定了 D1 数据库：在 Cloudflare Dashboard -> `Workers & Pages` -> 进入你的 Pages 项目 -> `Settings` -> `Functions` -> `D1 Database Bindings`，检查是否存在变量名为 `DB` 的绑定。
+  1. 重新执行 `pnpm onboard --apply`，脚本会幂等写入 Pages 的 `DB`、`MAIL_DOMAIN` 和 `WEB_HOSTNAME` 生产绑定。
   2. 确认自定义域名 DNS 已生效：`inbox.yourdomain.com` 应该作为橙色云朵（Proxied）CNAME 指向 `<projectName>.pages.dev`。
 
 ### Q5: OAuth 授权过期或凭据失效

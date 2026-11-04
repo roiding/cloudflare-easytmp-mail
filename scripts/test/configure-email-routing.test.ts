@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { configureEmailRouting } from '../configure-email-routing.js';
 import { CloudflareClient } from '../lib/cloudflare-client.js';
+import { DEFAULT_WORKER_NAME } from '../lib/env.js';
 
 const MOCK_ZONE_ID = '0123456789abcdef0123456789abcdef';
 const MOCK_ACCOUNT_ID = 'fedcba9876543210fedcba9876543210';
@@ -157,7 +158,7 @@ describe('configureEmailRouting Automation Script', () => {
 
     const body = JSON.parse(putCalls[0][1]?.body as string);
     expect(body.actions[0].type).toBe('worker');
-    expect(body.actions[0].value).toEqual(['easytmp-mail-inbound']);
+    expect(body.actions[0].value).toEqual([DEFAULT_WORKER_NAME]);
     expect(body.matchers[0].type).toBe('all');
     expect(body.enabled).toBe(true);
   });

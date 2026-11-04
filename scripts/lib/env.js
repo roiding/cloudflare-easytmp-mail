@@ -1,11 +1,18 @@
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+import { loadConfig } from './config.js';
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const HEX32_REGEX = /^[0-9a-f]{32}$/i;
 
-export const EXPECTED_MAIL_DOMAIN = 'cottage.dpdns.org';
-export const EXPECTED_PAGES_DOMAIN = 'inbox.cottage.dpdns.org';
+export const PROJECT_CONFIG = loadConfig();
+export const EXPECTED_MAIL_DOMAIN = PROJECT_CONFIG.mailDomain;
+export const EXPECTED_PAGES_DOMAIN = PROJECT_CONFIG.webHostname;
+export const DEFAULT_WORKER_NAME = PROJECT_CONFIG.workerName;
+export const DEFAULT_PAGES_PROJECT = PROJECT_CONFIG.projectName;
+export const DEFAULT_D1_NAME = PROJECT_CONFIG.d1DatabaseName;
+
+// Kept for the historical single-domain migration scripts. New onboarding
+// never uses a hard-coded destination; it always reads easytmp.config.json.
 export const FORBIDDEN_DOMAIN = 'roiding.dpdns.org';
-export const DEFAULT_WORKER_NAME = 'easytmp-mail-inbound';
-export const DEFAULT_PAGES_PROJECT = 'easytmp-mail';
 
 export function validateDatabaseId(dbId, actionName = 'Operation') {
   const trimmed = dbId?.trim();
@@ -39,7 +46,7 @@ export function validateZoneId(zoneId, actionName = 'Zone operation') {
   if (!trimmed || trimmed.includes('placeholder') || !HEX32_REGEX.test(trimmed)) {
     throw new Error(
       `[CONFIG_ERROR] ${actionName} requires a 32-character hex CLOUDFLARE_ZONE_ID.\n` +
-        'Please export CLOUDFLARE_ZONE_ID for cottage.dpdns.org.',
+        `Please export CLOUDFLARE_ZONE_ID for ${EXPECTED_MAIL_DOMAIN}.`,
     );
   }
   return trimmed;
@@ -57,11 +64,17 @@ export function validateAccountId(accountId, actionName = 'Account operation') {
 }
 
 export function validateMailDomain(domain = EXPECTED_MAIL_DOMAIN, actionName = 'Domain operation') {
-  const trimmed = (domain || EXPECTED_MAIL_DOMAIN).trim().toLowerCase();
-  if (trimmed === FORBIDDEN_DOMAIN || trimmed.includes('roiding')) {
+  const trimmed = (domain || EXPECTED_MAIL_DOMAIN).trim().toLowerCase().replace(/\.$/, '');
+  if (
+    !/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(
+      trimmed,
+    )
+  ) {
+    throw new Error(`[CONFIG_ERROR] ${actionName} received an invalid domain: "${trimmed}".`);
+  }
+  if (trimmed === FORBIDDEN_DOMAIN) {
     throw new Error(
-      `[SECURITY_REFUSAL] ${actionName} strictly forbids operations targeting "${trimmed}". ` +
-        `Only "${EXPECTED_MAIL_DOMAIN}" is allowed.`,
+      `[SECURITY_REFUSAL] ${actionName} strictly forbids operations targeting "${trimmed}".`,
     );
   }
   if (trimmed !== EXPECTED_MAIL_DOMAIN) {
@@ -71,6 +84,10 @@ export function validateMailDomain(domain = EXPECTED_MAIL_DOMAIN, actionName = '
     );
   }
   return trimmed;
+}
+
+export function resolveConfiguredValue(value, configValue) {
+  return value || configValue;
 }
 
 export function parseCliFlags(args = process.argv.slice(2)) {

@@ -27,7 +27,10 @@ function createMockFetch(overrides: Record<string, unknown> = {}) {
       };
     }
 
-    if (path === `/zones/${MOCK_ZONE_ID}/dns_records`) {
+    if (
+      path === `/zones/${MOCK_ZONE_ID}/dns_records` ||
+      path.startsWith(`/zones/${MOCK_ZONE_ID}/dns_records?`)
+    ) {
       return {
         status: 200,
         ok: true,

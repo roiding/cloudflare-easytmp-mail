@@ -12,7 +12,8 @@ import { CloudflareClient } from './lib/cloudflare-client.js';
 import { saveSanitizedBackup } from './lib/backup.js';
 
 /**
- * Migration and cleanup script for cottage.dpdns.org old MX and old Worker.
+ * Historical cleanup utility for the original cottage.dpdns.org migration.
+ * It is intentionally not part of `pnpm onboard`.
  *
  * Official Cloudflare REST API documentation references:
  * - DNS Records List:              https://developers.cloudflare.com/api/resources/dns/subresources/records/methods/list/
@@ -38,7 +39,14 @@ export async function cleanupOldService({
       accountId: validateAccountId(process.env.CLOUDFLARE_ACCOUNT_ID, 'cleanupOldService'),
     });
 
-  // Guard 1: Verify zone strictly (cottage.dpdns.org only; reject roiding.dpdns.org)
+  // Guard 1: Historical resource cleanup remains limited to the original
+  // cottage.dpdns.org migration and cannot target an arbitrary new deployment.
+  if (mailDomain !== 'cottage.dpdns.org') {
+    throw new Error(
+      `[HISTORICAL_ONLY] Cleanup is only available for cottage.dpdns.org; received "${mailDomain}". ` +
+        'New deployments use `pnpm onboard` and never require legacy cleanup.',
+    );
+  }
   console.log(`[cleanup] Verifying zone "${mailDomain}"...`);
   const zoneInfo = await cfClient.verifyCottageZone();
   console.log(`[cleanup] Verified zone: ${zoneInfo.zoneName} (${zoneInfo.zoneId})`);
@@ -47,17 +55,16 @@ export async function cleanupOldService({
   console.log('[cleanup] Gathering resource inventory from Cloudflare...');
   const [dnsRecords, emailRoutingSettings, catchAllRule, customRules, routingDns] =
     await Promise.all([
-      cfClient.listDnsRecords({ zoneId: zoneInfo.zoneId }),
+      cfClient.listDnsRecords({}, zoneInfo.zoneId),
       cfClient.getEmailRoutingSettings(),
       cfClient.getEmailRoutingCatchAllRule(),
       cfClient.listEmailRoutingRules(),
       cfClient.getEmailRoutingDnsSettings(),
     ]);
 
-  const mxRecords = (dnsRecords || []).filter((r) => r.type === 'MX');
-  const spfRecords = (dnsRecords || []).filter(
-    (r) => r.type === 'TXT' && r.content?.includes('v=spf1'),
-  );
+  const dnsRecordList = Array.isArray(dnsRecords) ? dnsRecords : dnsRecords?.result || [];
+  const mxRecords = dnsRecordList.filter((r) => r.type === 'MX');
+  const spfRecords = dnsRecordList.filter((r) => r.type === 'TXT' && r.content?.includes('v=spf1'));
 
   // Identify old worker candidate
   let resolvedOldWorker = oldWorkerName?.trim() || process.env.OLD_WORKER_NAME?.trim();

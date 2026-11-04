@@ -1,4 +1,4 @@
-import { MAIL_DOMAIN } from '../types/index.js';
+import { DEFAULT_MAIL_DOMAIN } from '../types/index.js';
 
 export const MAILBOX_NAME_INPUT_REGEX =
   /^(?!.*\.\.)[A-Za-z0-9](?:[A-Za-z0-9._-]{0,62}[A-Za-z0-9])?$/;
@@ -18,7 +18,10 @@ export interface MailboxValidationResult {
  * Strict formatting: 1-64 chars, starts and ends with alphanumeric,
  * middle can contain [._-], no consecutive dots, no whitespace trimming.
  */
-export function validateMailboxName(rawName: unknown): MailboxValidationResult {
+export function validateMailboxName(
+  rawName: unknown,
+  mailDomain?: string | null,
+): MailboxValidationResult {
   if (typeof rawName !== 'string') {
     return {
       valid: false,
@@ -42,12 +45,11 @@ export function validateMailboxName(rawName: unknown): MailboxValidationResult {
   }
 
   const normalizedName = rawName.toLowerCase();
-  const address = `${normalizedName}@${MAIL_DOMAIN}`;
 
   return {
     valid: true,
     name: normalizedName,
-    address,
+    ...(mailDomain ? { address: `${normalizedName}@${mailDomain.toLowerCase()}` } : {}),
   };
 }
 
@@ -60,7 +62,10 @@ const MAX_UNBIASED_BYTE = 252;
  * Generates a cryptographically secure 16-character random mailbox name and address
  * with rejection sampling to eliminate modulo bias.
  */
-export function generateRandomMailbox(mailDomain = MAIL_DOMAIN): { name: string; address: string } {
+export function generateRandomMailbox(mailDomain = DEFAULT_MAIL_DOMAIN): {
+  name: string;
+  address: string;
+} {
   let name = '';
   const buffer = new Uint8Array(32);
   let offset = buffer.length;

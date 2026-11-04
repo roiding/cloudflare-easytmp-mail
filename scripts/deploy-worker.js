@@ -1,7 +1,7 @@
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { validateDatabaseId, parseCliFlags } from './lib/env.js';
+import { DEFAULT_WORKER_NAME, validateDatabaseId, parseCliFlags } from './lib/env.js';
 import { generateWorkerTempConfig } from './lib/temp-config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -11,7 +11,8 @@ const workerDir = resolve(rootDir, 'apps/inbound-worker');
 export function deployWorker({
   apply = false,
   dbId = process.env.CLOUDFLARE_D1_DATABASE_ID,
-  executor = execSync,
+  executor = execFileSync,
+  projectName = DEFAULT_WORKER_NAME,
 } = {}) {
   const validDbId = validateDatabaseId(dbId, 'Inbound Worker deployment');
   const tempConfig = generateWorkerTempConfig(validDbId);
@@ -19,9 +20,9 @@ export function deployWorker({
   try {
     if (!apply) {
       console.log(
-        `[deploy:worker] [DRY-RUN] Simulating Inbound Worker deployment (DB ID: ${validDbId})...`,
+        `[deploy:worker] [DRY-RUN] Simulating ${projectName} deployment (DB ID: ${validDbId})...`,
       );
-      executor(`npx wrangler deploy --dry-run -c "${tempConfig.configPath}"`, {
+      executor('npx', ['wrangler', 'deploy', '--dry-run', '-c', tempConfig.configPath], {
         cwd: workerDir,
         stdio: 'inherit',
       });
@@ -30,9 +31,9 @@ export function deployWorker({
       );
     } else {
       console.log(
-        `[deploy:worker] [APPLY] Deploying Inbound Worker to Cloudflare (DB ID: ${validDbId})...`,
+        `[deploy:worker] [APPLY] Deploying Worker ${projectName} to Cloudflare (DB ID: ${validDbId})...`,
       );
-      executor(`npx wrangler deploy -c "${tempConfig.configPath}"`, {
+      executor('npx', ['wrangler', 'deploy', '-c', tempConfig.configPath], {
         cwd: workerDir,
         stdio: 'inherit',
       });

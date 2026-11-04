@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import {
   generateWorkerTempConfig,
@@ -75,6 +76,38 @@ describe('Wrangler Temporary Config Generator', () => {
     } finally {
       temp.cleanup();
       expect(existsSync(temp.tempDir)).toBe(false);
+    }
+  });
+
+  it('derives all Wrangler names and domains from a non-production config', () => {
+    const configDir = mkdtempSync(resolve(tmpdir(), 'easytmp-config-'));
+    const configPath = resolve(configDir, 'config.json');
+    writeFileSync(configPath, JSON.stringify({ mailDomain: 'mail.example.com' }));
+    const previousConfig = process.env.EASYTMP_CONFIG;
+    process.env.EASYTMP_CONFIG = configPath;
+
+    try {
+      const worker = generateWorkerTempConfig('22222222-3333-4444-8555-666666666666');
+      const pages = generatePagesTempDir('22222222-3333-4444-8555-666666666666');
+      try {
+        const workerToml = readFileSync(worker.configPath, 'utf8');
+        const pagesToml = readFileSync(pages.configPath, 'utf8');
+
+        expect(workerToml).toContain('name = "easytmp-mail-example-worker"');
+        expect(workerToml).toContain('database_name = "easytmp-mail-example"');
+        expect(workerToml).toContain('MAIL_DOMAIN = "mail.example.com"');
+        expect(pagesToml).toContain('name = "easytmp-mail-example"');
+        expect(pagesToml).toContain('database_name = "easytmp-mail-example"');
+        expect(pagesToml).toContain('MAIL_DOMAIN = "mail.example.com"');
+        expect(pagesToml).toContain('WEB_HOSTNAME = "inbox.mail.example.com"');
+      } finally {
+        worker.cleanup();
+        pages.cleanup();
+      }
+    } finally {
+      if (previousConfig === undefined) delete process.env.EASYTMP_CONFIG;
+      else process.env.EASYTMP_CONFIG = previousConfig;
+      rmSync(configDir, { recursive: true, force: true });
     }
   });
 });

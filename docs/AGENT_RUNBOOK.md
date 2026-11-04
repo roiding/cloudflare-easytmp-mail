@@ -22,6 +22,9 @@
    - Cloudflare Email Routing 托管的 MX 记录（`route1/route2/route3.mx.cloudflare.net`）和 SPF 记录是整个系统收信的基石，严禁擅自修改或删除。
 5. **工作区状态保护**：
    - 检查工作区现有未提交代码或配置文件时，保持现有文件完整，**严禁执行 `git reset --hard` 或回滚他人未提交的工作**。
+6. **部署入口唯一**：
+   - 新环境上线只运行 `pnpm onboard` 与 `pnpm onboard --apply`。
+   - `legacy:*` 脚本仅用于 `cottage.dpdns.org` 历史迁移。其他域名禁止执行 `pnpm legacy:deploy:orchestrate` 或 `pnpm legacy:cleanup:*`。
 
 ---
 
@@ -78,14 +81,14 @@ stateDiagram-v2
 - **操作**：
   - 运行 `pnpm onboard --apply`。
 - **自动执行链路**：
-  1. 保证 D1 数据库与 Pages 实例存在。
+  1. 保证 D1 数据库与 Pages 实例存在，并把 `DB`、`MAIL_DOMAIN`、`WEB_HOSTNAME` 写入 Pages 生产配置。
   2. 回写公共 ID（`zoneId`, `accountId`, `d1DatabaseId`）至 `easytmp.config.json`。
   3. 执行 `pnpm build`（全模块构建与 Functions 预校验）。
   4. 应用远程 D1 Schema 迁移。
-  5. 部署 Email Inbound Worker（包含 scheduled cron 清理触发器）。
-  6. 自动将现有 Email Routing 规则保存脱敏 JSON 备份至 `.wrangler/backups/`，更新 Catch-all 指向新 Worker。
+  5. 部署 Email Inbound Worker（包含 scheduled cron 清理触发器），等待脚本在账户中可见。
+  6. 启用 Email Routing、等待就绪，将现有规则保存脱敏 JSON 备份至 `.wrangler/backups/`，更新 Catch-all 指向新 Worker。
   7. 部署 Pages 静态站与同源 `/api/*` Functions，绑定 `inbox.<mailDomain>` 自定义域名。
-  8. 执行基础冒烟测试。
+  8. 等待 Pages 域名与 HTTPS 就绪，执行 `/api/config`、健康、安全标头、随机地址和查询冒烟测试。
 - **转移条件**：`onboard` 进程退出码为 `0` 且输出 `Deployment summary`。
 
 #### S4: 端到端功能与真实收信验收

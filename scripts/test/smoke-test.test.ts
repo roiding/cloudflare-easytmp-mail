@@ -33,6 +33,23 @@ function createMockFetch(overrides: Record<string, unknown> = {}) {
       };
     }
 
+    if (path === '/api/config') {
+      return {
+        status: overrides.configStatus ?? 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({
+          mailDomain: 'cottage.dpdns.org',
+          webHostname: 'inbox.cottage.dpdns.org',
+          retentionSeconds: 604800,
+          addressPolicy: {
+            minLength: 1,
+            maxLength: 64,
+            allowedCharacters: 'letters, digits, dot, underscore, hyphen',
+          },
+        }),
+      };
+    }
+
     if (path === '/api/v1/addresses/random') {
       return {
         status: overrides.randomStatus ?? 200,
@@ -40,8 +57,7 @@ function createMockFetch(overrides: Record<string, unknown> = {}) {
         json: async () => ({
           address: 'abcdef1234567890@cottage.dpdns.org',
           name: 'abcdef1234567890',
-          domain: 'cottage.dpdns.org',
-          expiresInDays: 7,
+          serverTime: 1700000000000,
         }),
       };
     }
@@ -68,11 +84,12 @@ describe('Smoke Test Suite', () => {
     const mockFetch = createMockFetch();
     const results = await runSmokeTests({
       baseUrl: 'https://inbox.cottage.dpdns.org',
+      expectedMailDomain: 'cottage.dpdns.org',
       fetchFn: mockFetch as unknown as typeof fetch,
     });
 
     expect(results.passed).toBe(true);
-    expect(results.tests).toHaveLength(4);
+    expect(results.tests).toHaveLength(5);
     expect(results.tests.every((t) => t.ok)).toBe(true);
   });
 
@@ -100,6 +117,7 @@ describe('Smoke Test Suite', () => {
 
     const results = await runSmokeTests({
       baseUrl: 'https://inbox.cottage.dpdns.org',
+      expectedMailDomain: 'cottage.dpdns.org',
       fetchFn: mockFetch as unknown as typeof fetch,
     });
 

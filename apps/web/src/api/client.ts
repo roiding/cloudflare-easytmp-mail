@@ -6,6 +6,7 @@ import type {
   MessageListResponse,
   MessageResponse,
   RandomAddressResponse,
+  ServiceConfigResponse,
 } from '@easytmp/shared';
 
 export class ApiError extends Error {
@@ -123,6 +124,27 @@ export interface ListMessagesOptions {
 }
 
 export const apiClient = {
+  async getConfig(signal?: AbortSignal): Promise<ServiceConfigResponse> {
+    const res = await fetch('/api/config', {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      signal,
+    });
+    const data = await parseJsonResponse<ServiceConfigResponse>(res);
+    if (
+      typeof data.mailDomain !== 'string' ||
+      typeof data.webHostname !== 'string' ||
+      typeof data.retentionSeconds !== 'number'
+    ) {
+      throw new ApiError({
+        status: 200,
+        code: 'invalid_response',
+        message: '服务配置响应缺少必要字段',
+      });
+    }
+    return data;
+  },
+
   /**
    * Health check endpoint.
    */

@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { MAIL_DOMAIN } from '@easytmp/shared';
 import { normalizeMailboxInput } from '../utils/mailbox';
 import { IconClose, IconEdit } from './Icons';
 
 interface SwitchMailboxModalProps {
   currentAddress: string;
+  mailDomain: string;
   isOpen: boolean;
   onClose: () => void;
   onSwitch: (input: string) => Promise<boolean>;
@@ -12,6 +12,7 @@ interface SwitchMailboxModalProps {
 
 export const SwitchMailboxModal: React.FC<SwitchMailboxModalProps> = ({
   currentAddress,
+  mailDomain,
   isOpen,
   onClose,
   onSwitch,
@@ -26,7 +27,7 @@ export const SwitchMailboxModal: React.FC<SwitchMailboxModalProps> = ({
     e.preventDefault();
     setLocalError(null);
 
-    const validation = normalizeMailboxInput(inputValue);
+    const validation = normalizeMailboxInput(inputValue, mailDomain);
     if (!validation.valid || !validation.name) {
       setLocalError(validation.error || '邮箱名不符合格式要求');
       return;
@@ -79,7 +80,7 @@ export const SwitchMailboxModal: React.FC<SwitchMailboxModalProps> = ({
                 id="mailbox-input"
                 type="text"
                 className={`text-input ${localError ? 'input-error' : ''}`}
-                placeholder={`例如 mytest 或 mytest@${MAIL_DOMAIN}`}
+                placeholder={`例如 mytest 或 mytest@${mailDomain}`}
                 value={inputValue}
                 onChange={(e) => {
                   setInputValue(e.target.value);

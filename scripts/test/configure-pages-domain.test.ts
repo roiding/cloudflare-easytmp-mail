@@ -45,11 +45,13 @@ describe('configurePagesDomain Script', () => {
       fetchFn: mockFetch,
     });
 
-    await expect(
-      configurePagesDomain({ client, customDomain: 'wrong.domain.com' }),
-    ).rejects.toThrowError(
-      /\[CONFIG_ERROR\].*Only exact hostname "inbox\.cottage\.dpdns\.org" is supported/,
-    );
+    const res = await configurePagesDomain({
+      client,
+      customDomain: 'inbox.other-domain.com',
+      apply: false,
+    });
+    expect(res.bound).toBe(false);
+    expect(res.dryRun).toBe(true);
   });
 
   it('detects existing domain binding and skips POST', async () => {

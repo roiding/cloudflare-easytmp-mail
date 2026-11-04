@@ -57,6 +57,23 @@ describe('API Health and Random Address Endpoints', () => {
     expect(json.address).toBe(`${json.name}@custom.mail.domain`);
   });
 
+  it('exposes the public deployment config without secrets', async () => {
+    const res = await app.request(
+      '/api/config',
+      {},
+      {
+        MAIL_DOMAIN: 'mail.example.com',
+        WEB_HOSTNAME: 'inbox.mail.example.com',
+      },
+    );
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as Record<string, unknown>;
+    expect(json.mailDomain).toBe('mail.example.com');
+    expect(json.webHostname).toBe('inbox.mail.example.com');
+    expect(json.retentionSeconds).toBe(604800);
+    expect(JSON.stringify(json)).not.toMatch(/token|secret|password/i);
+  });
+
   it('responds with 400 invalid_query if query parameters are passed to random address', async () => {
     const res = await app.request('/api/v1/addresses/random?foo=bar');
     expect(res.status).toBe(400);

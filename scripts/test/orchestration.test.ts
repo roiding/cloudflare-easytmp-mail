@@ -164,15 +164,18 @@ describe('Deployment Orchestration Safety Engine', () => {
 
     // Verify dry-run commands were dispatched through mockSubprocess
     expect(mockSubprocess).toHaveBeenCalledWith(
-      expect.stringContaining('wrangler d1 migrations list'),
+      'npx',
+      expect.arrayContaining(['wrangler', 'd1', 'migrations', 'list']),
       expect.anything(),
     );
     expect(mockSubprocess).toHaveBeenCalledWith(
-      expect.stringContaining('wrangler deploy --dry-run'),
+      'npx',
+      expect.arrayContaining(['wrangler', 'deploy', '--dry-run']),
       expect.anything(),
     );
     expect(mockSubprocess).toHaveBeenCalledWith(
-      expect.stringContaining('wrangler pages functions build'),
+      'npx',
+      expect.arrayContaining(['wrangler', 'pages', 'functions', 'build']),
       expect.anything(),
     );
   });

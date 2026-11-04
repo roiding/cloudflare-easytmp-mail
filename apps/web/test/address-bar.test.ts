@@ -13,6 +13,7 @@ describe('AddressBar and SwitchMailboxModal tests', () => {
   const defaultProps = {
     name: 'p7x4m9q2v6k8n3r5',
     address: `p7x4m9q2v6k8n3r5@${MAIL_DOMAIN}`,
+    mailDomain: MAIL_DOMAIN,
     messagesCount: 2,
     isLoading: false,
     onRefresh: vi.fn().mockResolvedValue(undefined),

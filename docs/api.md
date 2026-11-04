@@ -487,7 +487,12 @@ export class EasyTmpClient {
   }
 
   health() {
-    return this.json<{ status: 'ok'; apiVersion: '1'; serverTime: number }>('/api/health');
+    return this.json<{
+      status: 'ok';
+      service: 'easytmp-mail';
+      apiVersion: '1';
+      serverTime: number;
+    }>('/api/health');
   }
 
   config() {
@@ -509,7 +514,13 @@ export class EasyTmpClient {
     const params = new URLSearchParams({ since: String(query.since), limit: '20' });
     if (query.fromDomain) params.set('fromDomain', query.fromDomain);
     if (query.subject) params.set('subject', query.subject);
-    return this.json<{ messages: Mail[]; pagination: { nextCursor: string | null } }>(
+    return this.json<{
+      name: string;
+      address: string;
+      messages: Mail[];
+      pagination: { limit: number; nextCursor: string | null };
+      serverTime: number;
+    }>(
       `/api/v1/mailboxes/${encodeURIComponent(name)}/messages?${params}`,
     );
   }

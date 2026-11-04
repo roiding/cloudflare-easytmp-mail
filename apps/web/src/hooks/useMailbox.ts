@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { MessageSummary } from '@easytmp/shared';
+import { DEFAULT_MAIL_DOMAIN } from '@easytmp/shared';
 import { apiClient, ApiError } from '../api/client';
 import { normalizeMailboxInput } from '../utils/mailbox';
 
@@ -31,7 +32,7 @@ export interface UseMailboxReturn {
   showAllMessages: boolean;
 }
 
-export function useMailbox(): UseMailboxReturn {
+export function useMailbox(mailDomain: string = DEFAULT_MAIL_DOMAIN): UseMailboxReturn {
   const [name, setName] = useState<string>('');
   const [address, setAddress] = useState<string>('');
   const [taskSince, setTaskSinceState] = useState<number | null>(null);
@@ -274,7 +275,7 @@ export function useMailbox(): UseMailboxReturn {
    */
   const switchMailbox = useCallback(
     async (rawInput: string): Promise<boolean> => {
-      const validation = normalizeMailboxInput(rawInput);
+      const validation = normalizeMailboxInput(rawInput, mailDomain);
       if (!validation.valid || !validation.name || !validation.address) {
         setError(validation.error || '邮箱名不合法');
         return false;
@@ -304,7 +305,7 @@ export function useMailbox(): UseMailboxReturn {
       });
       return true;
     },
-    [fetchMessages, setTaskSince, setShowAllMessages],
+    [fetchMessages, mailDomain, setTaskSince, setShowAllMessages],
   );
 
   /**

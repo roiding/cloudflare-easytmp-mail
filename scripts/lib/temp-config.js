@@ -2,6 +2,7 @@ import { cpSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } f
 import { randomBytes } from 'node:crypto';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { loadConfig } from './config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const rootDir = resolve(__dirname, '../..');
@@ -9,6 +10,10 @@ const tmpBaseDir = resolve(rootDir, '.wrangler/tmp');
 const workerDir = resolve(rootDir, 'apps/inbound-worker');
 const apiDir = resolve(rootDir, 'apps/api');
 const migrationsDir = resolve(rootDir, 'packages/db/migrations');
+
+function currentConfig() {
+  return loadConfig();
+}
 
 // Track all active temporary paths to ensure cleanup on exit or interruption
 const activeTempPaths = new Set();
@@ -52,7 +57,15 @@ export function generateWorkerTempConfig(dbId) {
   const originalToml = readFileSync(originalTomlPath, 'utf8');
 
   // Replace database_id and resolve relative paths to absolute
-  let updatedToml = originalToml.replace(/database_id\s*=\s*"[^"]+"/, `database_id = "${dbId}"`);
+  const config = currentConfig();
+  const mailDomain = config.mailDomain;
+  const workerName = config.workerName;
+  const d1Name = config.d1DatabaseName;
+  let updatedToml = originalToml
+    .replace(/^name\s*=\s*"[^"]+"/m, `name = "${workerName}"`)
+    .replace(/database_name\s*=\s*"[^"]+"/, `database_name = "${d1Name}"`)
+    .replace(/database_id\s*=\s*"[^"]+"/, `database_id = "${dbId}"`)
+    .replace(/MAIL_DOMAIN\s*=\s*"[^"]+"/, `MAIL_DOMAIN = "${mailDomain}"`);
   updatedToml = updatedToml.replace(
     /main\s*=\s*"[^"]+"/,
     `main = "${resolve(workerDir, 'src/index.ts')}"`,
@@ -81,7 +94,13 @@ export function generateMigrateTempConfig(dbId) {
   const originalTomlPath = resolve(apiDir, 'wrangler.toml');
   const originalToml = readFileSync(originalTomlPath, 'utf8');
 
-  let updatedToml = originalToml.replace(/database_id\s*=\s*"[^"]+"/, `database_id = "${dbId}"`);
+  const config = currentConfig();
+  const mailDomain = config.mailDomain;
+  const d1Name = config.d1DatabaseName;
+  let updatedToml = originalToml
+    .replace(/database_name\s*=\s*"[^"]+"/, `database_name = "${d1Name}"`)
+    .replace(/database_id\s*=\s*"[^"]+"/, `database_id = "${dbId}"`)
+    .replace(/MAIL_DOMAIN\s*=\s*"[^"]+"/, `MAIL_DOMAIN = "${mailDomain}"`);
   updatedToml = updatedToml.replace(
     /migrations_dir\s*=\s*"[^"]+"/,
     `migrations_dir = "${migrationsDir}"`,
@@ -120,20 +139,26 @@ export function generatePagesTempDir(dbId) {
   });
   symlinkSync(resolve(apiDir, 'node_modules'), resolve(tempDirPath, 'node_modules'), 'junction');
 
+  const config = currentConfig();
+  const mailDomain = config.mailDomain;
+  const webHostname = config.webHostname;
+  const projectName = config.projectName;
+  const d1Name = config.d1DatabaseName;
   const toml = `
-name = "easytmp-mail"
+name = "${projectName}"
 compatibility_date = "2024-11-01"
 compatibility_flags = ["nodejs_compat"]
 pages_build_output_dir = "${resolve(apiDir, 'dist')}"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "easytmp-mail"
+database_name = "${d1Name}"
 database_id = "${dbId}"
 migrations_dir = "${migrationsDir}"
 
 [vars]
-MAIL_DOMAIN = "cottage.dpdns.org"
+MAIL_DOMAIN = "${mailDomain}"
+WEB_HOSTNAME = "${webHostname}"
 `;
 
   const configPath = resolve(tempDirPath, 'wrangler.toml');

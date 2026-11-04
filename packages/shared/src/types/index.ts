@@ -1,5 +1,9 @@
-export const MAIL_DOMAIN = 'cottage.dpdns.org';
-export const WEB_AND_API_DOMAIN = 'inbox.cottage.dpdns.org';
+export const DEFAULT_MAIL_DOMAIN = 'cottage.dpdns.org';
+export const DEFAULT_WEB_AND_API_DOMAIN = 'inbox.cottage.dpdns.org';
+/** @deprecated Use DEFAULT_MAIL_DOMAIN only as a development fallback. */
+export const MAIL_DOMAIN = DEFAULT_MAIL_DOMAIN;
+/** @deprecated Use DEFAULT_WEB_AND_API_DOMAIN only as a development fallback. */
+export const WEB_AND_API_DOMAIN = DEFAULT_WEB_AND_API_DOMAIN;
 export const MESSAGE_RETENTION_MS = 604_800_000; // 7 days in ms
 export const MESSAGE_RETENTION_SECONDS = 604_800;
 export const MAX_EMAIL_BYTES = 1_048_576; // 1MB default
@@ -76,6 +80,17 @@ export interface RandomAddressResponse {
   name: string;
   address: string;
   serverTime: number;
+}
+
+export interface ServiceConfigResponse {
+  mailDomain: string;
+  webHostname: string;
+  retentionSeconds: number;
+  addressPolicy: {
+    minLength: 1;
+    maxLength: 64;
+    allowedCharacters: string;
+  };
 }
 
 export interface MessageListResponse {

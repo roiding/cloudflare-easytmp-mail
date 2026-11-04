@@ -50,7 +50,7 @@ export default {
     }
 
     // Validate mailbox local-part name format
-    const nameValidation = validateMailboxName(localPart);
+    const nameValidation = validateMailboxName(localPart, config.mailDomain);
     if (!nameValidation.valid || !nameValidation.name) {
       message.setReject('Invalid mailbox local part');
       return;

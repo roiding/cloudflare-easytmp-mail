@@ -20,27 +20,28 @@ export async function configurePagesDomain({
   apply = false,
   projectName = DEFAULT_PAGES_PROJECT,
   customDomain = EXPECTED_PAGES_DOMAIN,
+  zoneId = process.env.CLOUDFLARE_ZONE_ID,
 } = {}) {
   const targetDomain = customDomain.trim().toLowerCase();
-  if (targetDomain !== EXPECTED_PAGES_DOMAIN) {
-    throw new Error(
-      `[CONFIG_ERROR] configurePagesDomain received unexpected custom domain: "${targetDomain}". ` +
-        `Only exact hostname "${EXPECTED_PAGES_DOMAIN}" is supported.`,
-    );
-  }
 
   const cfClient =
     client ||
     new CloudflareClient({
       apiToken: validateApiToken(process.env.CLOUDFLARE_API_TOKEN, 'configurePagesDomain'),
       accountId: validateAccountId(process.env.CLOUDFLARE_ACCOUNT_ID, 'configurePagesDomain'),
+      zoneId,
     });
 
   console.log(
     `[pages-domain] Inspecting custom domains on Pages project "${projectName}" for "${targetDomain}"...`,
   );
   const domains = await cfClient.listPagesDomains(projectName);
-  const existing = (domains || []).find((d) => d.name?.toLowerCase() === targetDomain);
+  const domainList = Array.isArray(domains)
+    ? domains
+    : Array.isArray(domains?.result)
+      ? domains.result
+      : [];
+  const existing = domainList.find((d) => d.name?.toLowerCase() === targetDomain);
 
   if (existing) {
     console.log(`[pages-domain] Found existing custom domain "${targetDomain}".`);
@@ -80,6 +81,22 @@ export async function configurePagesDomain({
     `[pages-domain] [APPLY] Domain addition response (status: ${result?.status || 'created'}):`,
   );
   console.log(JSON.stringify(result, null, 2));
+
+  // A proxied Pages hostname is attached to the Pages project. DNS records
+  // created by a prior generic proxy rule are replaced in a follow-up deploy.
+  const dnsRecords = await cfClient.listDnsRecords({ type: 'CNAME', name: targetDomain });
+  const dnsRecordList = Array.isArray(dnsRecords) ? dnsRecords : [];
+  const exactDns = dnsRecordList.find(
+    (record) => record.type === 'CNAME' && record.name?.toLowerCase() === targetDomain,
+  );
+  if (exactDns) {
+    console.log(`[pages-domain] Existing CNAME ${exactDns.id} remains present.`);
+  } else {
+    console.log(
+      `[pages-domain] Add a proxied CNAME ${targetDomain} -> ${projectName}.pages.dev if ` +
+        'Cloudflare does not create it automatically.',
+    );
+  }
 
   if (result?.status === 'initializing' || result?.validation_data?.status === 'initializing') {
     console.log('\n--- DNS Configuration Notice ---');

@@ -34,7 +34,7 @@
 2. 将 `easytmp.config.json` 中的 `mailDomain` 修改为我的目标域名："<YOUR_DOMAIN.COM>"。
 3. 执行 `npx wrangler whoami --json` 检查登录态。如果未登录，请暂停并提示我在 Chrome 浏览器中运行 `pnpm exec wrangler login`；如果已登录且有多个账户，请协助确认 Account ID。
 4. 运行 `pnpm onboard` 执行 Dry-Run 预检，确认 Zone 探测无误、D1 与 Pages 状态清晰，且无阻断错误。
-5. 运行 `pnpm onboard --apply` 执行全自动构建、Schema 迁移、Worker 部署、Email Routing 绑定及 Pages 发布。
+5. 运行 `pnpm onboard --apply` 执行全自动构建、Schema 迁移、Pages 生产绑定、Worker 部署、Email Routing 启用及 Pages 发布。
 6. 运行 `pnpm smoke-test --url https://inbox.<YOUR_DOMAIN.COM>` 进行线上端点验收。
 7. 提供从外部邮箱发送真实邮件并进行接口查验的具体 curl 命令。
 

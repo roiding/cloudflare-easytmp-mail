@@ -1,4 +1,4 @@
-import { MAIL_DOMAIN, validateMailboxName } from '@easytmp/shared';
+import { DEFAULT_MAIL_DOMAIN, validateMailboxName } from '@easytmp/shared';
 
 export interface MailboxInputResult {
   valid: boolean;
@@ -9,10 +9,13 @@ export interface MailboxInputResult {
 
 /**
  * Normalizes and validates mailbox input from the user.
- * Supports both local-part only ("alice") and full email address ("alice@cottage.dpdns.org").
+ * Supports both local-part only ("alice") and a full address on the deployment domain.
  * Enforces correct domain if @ is present, and delegates to shared validateMailboxName.
  */
-export function normalizeMailboxInput(rawInput: unknown): MailboxInputResult {
+export function normalizeMailboxInput(
+  rawInput: unknown,
+  mailDomain: string = DEFAULT_MAIL_DOMAIN,
+): MailboxInputResult {
   if (typeof rawInput !== 'string') {
     return {
       valid: false,
@@ -34,20 +37,20 @@ export function normalizeMailboxInput(rawInput: unknown): MailboxInputResult {
     if (parts.length !== 2 || !parts[0] || !parts[1]) {
       return {
         valid: false,
-        error: '邮箱地址格式不正确，示例：alice 或 alice@' + MAIL_DOMAIN,
+        error: '邮箱地址格式不正确，示例：alice 或 alice@' + mailDomain,
       };
     }
     const [namePart, domainPart] = parts;
-    if (domainPart.toLowerCase() !== MAIL_DOMAIN.toLowerCase()) {
+    if (domainPart.toLowerCase() !== mailDomain.toLowerCase()) {
       return {
         valid: false,
-        error: `暂仅支持本站域名 @${MAIL_DOMAIN} 的邮箱`,
+        error: `暂仅支持本站域名 @${mailDomain} 的邮箱`,
       };
     }
     localPart = namePart;
   }
 
-  const validation = validateMailboxName(localPart);
+  const validation = validateMailboxName(localPart, mailDomain);
   if (!validation.valid) {
     return {
       valid: false,

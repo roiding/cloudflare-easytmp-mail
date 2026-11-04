@@ -22,8 +22,10 @@ import {
   MessageListResponse,
   MessageResponse,
   MIN_PAGE_LIMIT,
+  MESSAGE_RETENTION_SECONDS,
   RandomAddressResponse,
   SAFE_MAX_INTEGER,
+  ServiceConfigResponse,
   STRICT_INTEGER_REGEX,
   validateCursorMatchesFilter,
   validateMailboxName,
@@ -36,6 +38,7 @@ import { handle } from 'hono/cloudflare-pages';
 export type PagesEnv = {
   DB: D1Database;
   MAIL_DOMAIN?: string;
+  WEB_HOSTNAME?: string;
 };
 
 type Variables = {
@@ -789,6 +792,7 @@ function getRepository(c: AppContext): { repo: MessageRepository } | { response:
 // 1. OPTIONS Preflight Handlers
 // ==========================================
 app.options('/health', () => createOptionsResponse('GET, OPTIONS'));
+app.options('/config', () => createOptionsResponse('GET, OPTIONS'));
 app.options('/v1/addresses/random', () => createOptionsResponse('GET, OPTIONS'));
 app.options('/v1/mailboxes/:name/messages', () => createOptionsResponse('GET, DELETE, OPTIONS'));
 app.options('/v1/messages/:id', () => createOptionsResponse('GET, DELETE, OPTIONS'));
@@ -809,6 +813,25 @@ app.get('/health', (c) => {
     serverTime,
   };
 
+  return createJsonResponse(responseBody, 200, { requestId });
+});
+
+// GET /api/config: public, non-secret deployment facts used by the static UI.
+app.get('/config', (c) => {
+  const { requestId } = getReqContext(c);
+  const queryErr = validateNoQueryParams(c);
+  if (queryErr) return queryErr;
+
+  const responseBody: ServiceConfigResponse = {
+    mailDomain: c.env?.MAIL_DOMAIN || MAIL_DOMAIN,
+    webHostname: c.env?.WEB_HOSTNAME || new URL(c.req.url).hostname,
+    retentionSeconds: MESSAGE_RETENTION_SECONDS,
+    addressPolicy: {
+      minLength: 1,
+      maxLength: 64,
+      allowedCharacters: 'letters, digits, dot, underscore, hyphen',
+    },
+  };
   return createJsonResponse(responseBody, 200, { requestId });
 });
 
@@ -1051,6 +1074,19 @@ app.delete('/v1/messages/:id', async (c) => {
 // 8. 405 Method Not Allowed Traps for Defined Routes
 // ==========================================
 app.all('/health', (c) => {
+  const { serverTime, requestId } = getReqContext(c);
+  return createErrorResponse({
+    status: 405,
+    error: 'method_not_allowed',
+    message: 'Method not allowed',
+    details: [],
+    requestId,
+    serverTime,
+    allowMethods: 'GET, OPTIONS',
+  });
+});
+
+app.all('/config', (c) => {
   const { serverTime, requestId } = getReqContext(c);
   return createErrorResponse({
     status: 405,

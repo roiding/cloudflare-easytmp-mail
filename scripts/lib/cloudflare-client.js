@@ -1,6 +1,6 @@
+import { setTimeout as sleep } from 'node:timers/promises';
 import {
   EXPECTED_MAIL_DOMAIN,
-  FORBIDDEN_DOMAIN,
   validateApiToken,
   validateZoneId,
   validateAccountId,
@@ -84,11 +84,7 @@ export class CloudflareClient {
 
   // ==================== Zone Security Guard ====================
 
-  /**
-   * Strictly verifies that the configured zone matches cottage.dpdns.org
-   * and blocks any execution targeting roiding.dpdns.org or other zones.
-   */
-  async verifyCottageZone() {
+  async verifyConfiguredZone(expectedDomain = EXPECTED_MAIL_DOMAIN) {
     if (!this.zoneId) {
       throw new Error('[SECURITY_REFUSAL] Cannot verify zone: zoneId is missing.');
     }
@@ -96,16 +92,9 @@ export class CloudflareClient {
     const zone = await this.getZone(this.zoneId);
     const zoneName = zone?.name?.toLowerCase();
 
-    if (zoneName === FORBIDDEN_DOMAIN || zoneName?.includes('roiding')) {
+    if (zoneName !== expectedDomain.toLowerCase()) {
       throw new Error(
-        `[SECURITY_REFUSAL] Target zone "${zoneName}" (${this.zoneId}) matches forbidden domain "${FORBIDDEN_DOMAIN}". ` +
-          'All operations targeting roiding.dpdns.org are strictly forbidden.',
-      );
-    }
-
-    if (zoneName !== EXPECTED_MAIL_DOMAIN) {
-      throw new Error(
-        `[SECURITY_REFUSAL] Target zone "${zoneName}" (${this.zoneId}) does not match expected zone "${EXPECTED_MAIL_DOMAIN}". ` +
+        `[SECURITY_REFUSAL] Target zone "${zoneName}" (${this.zoneId}) does not match configured zone "${expectedDomain}". ` +
           'Refusing execution to avoid operating on unintended zones.',
       );
     }
@@ -119,10 +108,28 @@ export class CloudflareClient {
     };
   }
 
+  async verifyCottageZone() {
+    return this.verifyConfiguredZone(EXPECTED_MAIL_DOMAIN);
+  }
+
   // ==================== Zone API ====================
 
   async getZone(zoneId = this.zoneId) {
     return this.request(`/zones/${zoneId}`);
+  }
+
+  async listZones(name) {
+    const query = new URLSearchParams({ name, per_page: '50' });
+    return this.request(`/zones?${query.toString()}`);
+  }
+
+  async findZoneByName(name) {
+    const zones = await this.listZones(name);
+    return (
+      (Array.isArray(zones) ? zones : []).find(
+        (zone) => zone.name?.toLowerCase() === name.toLowerCase(),
+      ) || null
+    );
   }
 
   // ==================== Email Routing Settings & Rules ====================
@@ -133,6 +140,44 @@ export class CloudflareClient {
    */
   async getEmailRoutingSettings(zoneId = this.zoneId) {
     return this.request(`/zones/${zoneId}/email/routing`);
+  }
+
+  async enableEmailRouting(zoneId = this.zoneId) {
+    return this.request(`/zones/${zoneId}/email/routing/enable`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  }
+
+  async ensureEmailRoutingReady(zoneId = this.zoneId, { maxAttempts = 12 } = {}) {
+    let settings = await this.getEmailRoutingSettings(zoneId);
+    if (settings?.enabled === true && settings?.status === 'ready') {
+      return { settings, enabled: false };
+    }
+
+    try {
+      await this.enableEmailRouting(zoneId);
+    } catch (error) {
+      // An enabled but asynchronously synchronising zone can reject the
+      // create request. Re-read settings before deciding this is fatal.
+      if (error.status !== 409) throw error;
+    }
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      settings = await this.getEmailRoutingSettings(zoneId);
+      if (
+        settings?.enabled === true &&
+        (settings.status === undefined || settings.status === 'ready')
+      ) {
+        return { settings, enabled: true };
+      }
+      if (attempt < maxAttempts) {
+        await sleep(5000);
+      }
+    }
+    throw new Error(
+      `[EMAIL_ROUTING_NOT_READY] Email Routing could not be enabled automatically ` +
+        `(status: ${settings?.status || 'unknown'}).`,
+    );
   }
 
   /**
@@ -218,11 +263,18 @@ export class CloudflareClient {
    * GET /zones/{zone_id}/dns_records
    */
   async listDnsRecords({ type, name } = {}, zoneId = this.zoneId) {
-    const params = new URLSearchParams();
+    const params = new URLSearchParams({ per_page: '100' });
     if (type) params.set('type', type);
     if (name) params.set('name', name);
     const query = params.toString() ? `?${params.toString()}` : '';
     return this.request(`/zones/${zoneId}/dns_records${query}`);
+  }
+
+  async createDnsRecord(record, zoneId = this.zoneId) {
+    return this.request(`/zones/${zoneId}/dns_records`, {
+      method: 'POST',
+      body: JSON.stringify(record),
+    });
   }
 
   /**
@@ -254,6 +306,45 @@ export class CloudflareClient {
     return this.request(`/accounts/${accountId}/workers/scripts`);
   }
 
+  async findWorkerScript(scriptName, accountId = this.accountId) {
+    const scripts = await this.listWorkerScripts(accountId);
+    return (
+      (Array.isArray(scripts) ? scripts : []).find((script) => script.id === scriptName) || null
+    );
+  }
+
+  async waitForWorkerScript(scriptName, { accountId = this.accountId, maxAttempts = 10 } = {}) {
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const script = await this.findWorkerScript(scriptName, accountId);
+      if (script) return script;
+      if (attempt < maxAttempts) {
+        await sleep(500 * attempt);
+      }
+    }
+    return null;
+  }
+
+  // ==================== D1 Databases ====================
+
+  async listD1Databases(accountId = this.accountId) {
+    const query = new URLSearchParams({ per_page: '100' });
+    return this.request(`/accounts/${accountId}/d1/database?${query.toString()}`);
+  }
+
+  async findD1DatabaseByName(name, accountId = this.accountId) {
+    const databases = await this.listD1Databases(accountId);
+    return (
+      (Array.isArray(databases) ? databases : []).find((database) => database.name === name) || null
+    );
+  }
+
+  async createD1Database(name, location = 'apac', accountId = this.accountId) {
+    return this.request(`/accounts/${accountId}/d1/database`, {
+      method: 'POST',
+      body: JSON.stringify({ name, primary_location_hint: location }),
+    });
+  }
+
   /**
    * https://developers.cloudflare.com/api/resources/workers/subresources/scripts/methods/delete/
    * DELETE /accounts/{account_id}/workers/scripts/{script_name}
@@ -273,6 +364,97 @@ export class CloudflareClient {
     return this.request(`/accounts/${accountId}/pages/projects/${projectName}`);
   }
 
+  async findPagesProject(projectName, accountId = this.accountId) {
+    try {
+      return await this.getPagesProject(projectName, accountId);
+    } catch (error) {
+      if (error.status === 404 || error.errors?.some((item) => item.code === 8000007)) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  async createPagesProject(projectName, accountId = this.accountId) {
+    return this.request(`/accounts/${accountId}/pages/projects`, {
+      method: 'POST',
+      body: JSON.stringify({
+        name: projectName,
+        production_branch: 'main',
+        deployment_configs: {
+          production: {
+            compatibility_date: '2024-11-01',
+            compatibility_flags: ['nodejs_compat'],
+          },
+          preview: {
+            compatibility_date: '2024-11-01',
+            compatibility_flags: ['nodejs_compat'],
+          },
+        },
+      }),
+    });
+  }
+
+  async updatePagesProjectConfig(
+    projectName,
+    { d1DatabaseId, mailDomain, webHostname, accountId = this.accountId } = {},
+  ) {
+    if (!d1DatabaseId || !mailDomain || !webHostname) {
+      throw new Error(
+        '[CONFIG_ERROR] Pages configuration requires d1DatabaseId, mailDomain, and webHostname.',
+      );
+    }
+    return this.request(`/accounts/${accountId}/pages/projects/${projectName}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        deployment_configs: {
+          production: {
+            env_vars: {
+              MAIL_DOMAIN: { type: 'plain_text', value: mailDomain },
+              WEB_HOSTNAME: { type: 'plain_text', value: webHostname },
+            },
+            d1_databases: {
+              DB: { id: d1DatabaseId },
+            },
+            compatibility_date: '2024-11-01',
+            compatibility_flags: ['nodejs_compat'],
+          },
+        },
+      }),
+    });
+  }
+
+  // ==================== Resource Provisioning ====================
+
+  async ensureD1Database(name, { location = 'apac', accountId = this.accountId } = {}) {
+    const existing = await this.findD1DatabaseByName(name, accountId);
+    if (existing) {
+      return { database: existing, created: false };
+    }
+    try {
+      return { database: await this.createD1Database(name, location, accountId), created: true };
+    } catch (error) {
+      // A concurrent retry may have created the same named database.
+      const raced = await this.findD1DatabaseByName(name, accountId);
+      if (raced) return { database: raced, created: false };
+      throw error;
+    }
+  }
+
+  async ensurePagesProject(projectName, accountId = this.accountId) {
+    const existing = await this.findPagesProject(projectName, accountId);
+    if (existing) {
+      return { project: existing, created: false };
+    }
+    try {
+      return { project: await this.createPagesProject(projectName, accountId), created: true };
+    } catch (error) {
+      const raced = await this.findPagesProject(projectName, accountId);
+      if (raced) return { project: raced, created: false };
+      throw error;
+    }
+  }
+
   /**
    * https://developers.cloudflare.com/api/resources/pages/subresources/projects/subresources/domains/methods/list/
    * GET /accounts/{account_id}/pages/projects/{project_name}/domains
@@ -290,5 +472,52 @@ export class CloudflareClient {
       method: 'POST',
       body: JSON.stringify({ name: domainName }),
     });
+  }
+
+  async waitForPagesDomain(
+    projectName,
+    domainName,
+    { accountId = this.accountId, maxAttempts = 24 } = {},
+  ) {
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const domains = await this.listPagesDomains(projectName, accountId);
+      const domain = (Array.isArray(domains) ? domains : []).find(
+        (item) => item.name?.toLowerCase() === domainName.toLowerCase(),
+      );
+      if (domain?.status === 'active') return domain;
+      if (domain?.status === 'blocked' || domain?.status === 'error') {
+        throw new Error(
+          `[PAGES_DOMAIN_FAILED] ${domainName} has status "${domain.status}". ` +
+            'Check Cloudflare Pages domain validation details.',
+        );
+      }
+      if (attempt < maxAttempts) {
+        await sleep(5000);
+      }
+    }
+    return null;
+  }
+
+  async ensureProxiedCname(name, target, zoneId = this.zoneId) {
+    if (!zoneId) throw new Error('[CONFIG_ERROR] zoneId is required to manage DNS.');
+    const records = await this.listDnsRecords({ type: 'CNAME', name }, zoneId);
+    const exact = (Array.isArray(records) ? records : []).find(
+      (record) => record.type === 'CNAME' && record.name?.toLowerCase() === name.toLowerCase(),
+    );
+    if (exact) return { record: exact, created: false };
+    return {
+      record: await this.createDnsRecord(
+        {
+          type: 'CNAME',
+          name,
+          content: target,
+          proxied: true,
+          ttl: 1,
+          comment: 'EasyTmp Pages custom hostname',
+        },
+        zoneId,
+      ),
+      created: true,
+    };
   }
 }

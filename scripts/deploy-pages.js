@@ -1,8 +1,8 @@
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { validateDatabaseId, parseCliFlags } from './lib/env.js';
+import { DEFAULT_PAGES_PROJECT, validateDatabaseId, parseCliFlags } from './lib/env.js';
 import { generatePagesTempDir } from './lib/temp-config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -13,7 +13,8 @@ const distDir = resolve(apiDir, 'dist');
 export function deployPages({
   apply = false,
   dbId = process.env.CLOUDFLARE_D1_DATABASE_ID,
-  executor = execSync,
+  executor = execFileSync,
+  projectName = DEFAULT_PAGES_PROJECT,
 } = {}) {
   const validDbId = validateDatabaseId(dbId, 'Pages production deployment');
 
@@ -29,9 +30,9 @@ export function deployPages({
   try {
     if (!apply) {
       console.log(
-        `[deploy:pages] [DRY-RUN] Verifying Pages Functions and static build for easytmp-mail (DB ID: ${validDbId})...`,
+        `[deploy:pages] [DRY-RUN] Verifying Pages Functions and static build for ${projectName} (DB ID: ${validDbId})...`,
       );
-      executor('npx wrangler pages functions build functions', {
+      executor('npx', ['wrangler', 'pages', 'functions', 'build', 'functions'], {
         cwd: apiDir,
         stdio: 'inherit',
       });
@@ -40,17 +41,25 @@ export function deployPages({
       );
     } else {
       console.log(
-        `[deploy:pages] [APPLY] Deploying Cloudflare Pages project (easytmp-mail) with DB ID: ${validDbId}...`,
+        `[deploy:pages] [APPLY] Deploying Cloudflare Pages project (${projectName}) with DB ID: ${validDbId}...`,
       );
-      executor('npx wrangler pages functions build functions', {
+      executor('npx', ['wrangler', 'pages', 'functions', 'build', 'functions'], {
         cwd: tempPages.tempDir,
         stdio: 'inherit',
       });
       executor(
-        `npx wrangler pages deploy "${distDir}" --project-name easytmp-mail --cwd "${tempPages.tempDir}"`,
-        {
-          stdio: 'inherit',
-        },
+        'npx',
+        [
+          'wrangler',
+          'pages',
+          'deploy',
+          distDir,
+          '--project-name',
+          projectName,
+          '--cwd',
+          tempPages.tempDir,
+        ],
+        { stdio: 'inherit' },
       );
       console.log('[deploy:pages] [APPLY] Cloudflare Pages deployment completed.');
     }

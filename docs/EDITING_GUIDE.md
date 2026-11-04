@@ -49,7 +49,7 @@ flowchart TD
 ```
 
 - **前端动态自适应**：前端在打开时优先请求同源的 `/api/config` 端点，动态获知当前部署的 `mailDomain`、`webHostname` 和 7 天保留策略，**绝不硬编码任何域名**。
-- **配置防篡改与安全持久化**：`scripts/onboard.js` 会在云端发现资源后，自动将公共的 `accountId`、`zoneId` 和 `d1DatabaseId` 写入 `easytmp.config.json`，确保重复执行具有绝对幂等性。
+- **配置防篡改与安全持久化**：`scripts/onboard.js` 会在云端发现资源后，自动将公共的 `accountId`、`zoneId` 和 `d1DatabaseId` 写入 `easytmp.config.json`，并把 D1 `DB`、`MAIL_DOMAIN`、`WEB_HOSTNAME` 同步到 Pages 生产配置。
 
 ---
 

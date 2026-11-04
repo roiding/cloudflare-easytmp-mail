@@ -6,12 +6,12 @@ describe('Mailbox Validation & Uniform Generation', () => {
     const res1 = validateMailboxName('Signup');
     expect(res1.valid).toBe(true);
     expect(res1.name).toBe('signup');
-    expect(res1.address).toBe('signup@cottage.dpdns.org');
+    expect(res1.address).toBeUndefined();
 
     const res2 = validateMailboxName('test.name-01_v2');
     expect(res2.valid).toBe(true);
     expect(res2.name).toBe('test.name-01_v2');
-    expect(res2.address).toBe('test.name-01_v2@cottage.dpdns.org');
+    expect(res2.address).toBeUndefined();
 
     const resSingle = validateMailboxName('a');
     expect(resSingle.valid).toBe(true);
@@ -71,5 +71,14 @@ describe('Mailbox Validation & Uniform Generation', () => {
     for (const ch of uniqueChars) {
       expect(ch).toMatch(/^[a-z0-9]$/);
     }
+  });
+
+  it('builds addresses from an explicit deployment domain', () => {
+    expect(validateMailboxName('Signup', 'mail.example.com').address).toBe(
+      'signup@mail.example.com',
+    );
+    expect(generateRandomMailbox('mail.example.com').address).toMatch(
+      /^[a-z0-9]{16}@mail\.example\.com$/,
+    );
   });
 });

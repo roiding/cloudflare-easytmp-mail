@@ -78,7 +78,7 @@ describe('Environment and Security Validation', () => {
         /\[SECURITY_REFUSAL\].*strictly forbids operations targeting "roiding\.dpdns\.org"/,
       );
       expect(() => validateMailDomain('sub.roiding.dpdns.org')).toThrowError(
-        /\[SECURITY_REFUSAL\]/,
+        /unexpected MAIL_DOMAIN/,
       );
     });
 

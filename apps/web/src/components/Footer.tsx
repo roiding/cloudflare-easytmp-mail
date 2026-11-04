@@ -1,7 +1,15 @@
 import React from 'react';
-import { MAIL_DOMAIN, WEB_AND_API_DOMAIN } from '@easytmp/shared';
+import { DEFAULT_MAIL_DOMAIN, DEFAULT_WEB_AND_API_DOMAIN } from '@easytmp/shared';
 
-export const Footer: React.FC = () => {
+interface FooterProps {
+  mailDomain?: string;
+  webHostname?: string;
+}
+
+export const Footer: React.FC<FooterProps> = ({
+  mailDomain = DEFAULT_MAIL_DOMAIN,
+  webHostname = DEFAULT_WEB_AND_API_DOMAIN,
+}) => {
   return (
     <footer className="app-footer">
       <div className="footer-container">
@@ -30,10 +38,10 @@ export const Footer: React.FC = () => {
             </p>
             <div className="footer-meta">
               <span>
-                收件域名：<code>@{MAIL_DOMAIN}</code>
+                收件域名：<code>@{mailDomain}</code>
               </span>
               <span>
-                服务域名：<code>{WEB_AND_API_DOMAIN}</code>
+                服务域名：<code>{webHostname}</code>
               </span>
             </div>
           </div>

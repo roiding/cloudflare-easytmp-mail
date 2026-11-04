@@ -23,9 +23,10 @@
     "email-routing:apply": "node scripts/configure-email-routing.js --apply",
     "pages:domain:check": "node scripts/configure-pages-domain.js --dry-run",
     "pages:domain:apply": "node scripts/configure-pages-domain.js --apply",
-    "cleanup:check": "node scripts/cleanup-old-service.js --dry-run",
-    "cleanup:apply": "node scripts/cleanup-old-service.js --apply",
-    "deploy:orchestrate": "node scripts/orchestrate-deployment.js",
+    "legacy:cleanup:check": "node scripts/cleanup-old-service.js --dry-run",
+    "legacy:cleanup:apply": "node scripts/cleanup-old-service.js --apply",
+    "legacy:deploy:orchestrate": "node scripts/orchestrate-deployment.js",
+    "onboard": "node scripts/onboard.js",
     "smoke-test": "node scripts/smoke-test.js"
   },
   "devDependencies": {

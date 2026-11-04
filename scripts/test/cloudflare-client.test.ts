@@ -100,7 +100,7 @@ describe('CloudflareClient Integration Boundary', () => {
       });
 
       await expect(client.verifyCottageZone()).rejects.toThrowError(
-        /\[SECURITY_REFUSAL\].*strictly forbidden/,
+        /\[SECURITY_REFUSAL\].*does not match configured zone/,
       );
     });
 
@@ -198,9 +198,78 @@ describe('CloudflareClient Integration Boundary', () => {
       expect(calledPaths).toContain(`PATCH /zones/${MOCK_ZONE_ID}/email/routing/dns`);
       expect(calledPaths).toContain(`DELETE /zones/${MOCK_ZONE_ID}/email/routing/dns`);
     });
+
+    it('enables a disabled zone through the Email Routing lifecycle endpoint', async () => {
+      const calledPaths: string[] = [];
+      let settingsReads = 0;
+      const mockFetch = createMockFetch((url, opts) => {
+        const path = url.replace('https://api.cloudflare.com/client/v4', '');
+        calledPaths.push(`${opts.method || 'GET'} ${path}`);
+        if (path === `/zones/${MOCK_ZONE_ID}/email/routing/enable`) {
+          return { json: { success: true, result: { enabled: true, status: 'ready' } } };
+        }
+        if (path === `/zones/${MOCK_ZONE_ID}/email/routing`) {
+          settingsReads += 1;
+          return {
+            json: {
+              success: true,
+              result:
+                settingsReads === 1
+                  ? { enabled: false, status: 'unconfigured' }
+                  : { enabled: true, status: 'ready' },
+            },
+          };
+        }
+        throw new Error(`Unexpected request: ${path}`);
+      });
+
+      const client = new CloudflareClient({
+        apiToken: MOCK_TOKEN,
+        zoneId: MOCK_ZONE_ID,
+        fetchFn: mockFetch,
+      });
+
+      const result = await client.ensureEmailRoutingReady();
+      expect(result.enabled).toBe(true);
+      expect(calledPaths).toContain(`POST /zones/${MOCK_ZONE_ID}/email/routing/enable`);
+    });
   });
 
   describe('Pages Custom Domain API', () => {
+    it('writes the production D1 and runtime variables into the Pages project', async () => {
+      let method = '';
+      let payload: Record<string, unknown> = {};
+      const mockFetch = createMockFetch((_url, opts) => {
+        method = opts.method || '';
+        payload = JSON.parse(opts.body as string);
+        return { json: { success: true, result: { name: 'easytmp-example' } } };
+      });
+      const client = new CloudflareClient({
+        apiToken: MOCK_TOKEN,
+        accountId: MOCK_ACCOUNT_ID,
+        fetchFn: mockFetch,
+      });
+
+      await client.updatePagesProjectConfig('easytmp-example', {
+        d1DatabaseId: '11111111-2222-4333-8444-555555555555',
+        mailDomain: 'mail.example.com',
+        webHostname: 'inbox.mail.example.com',
+      });
+
+      expect(method).toBe('PATCH');
+      const production = (
+        payload.deployment_configs as {
+          production: {
+            d1_databases: Record<string, { id: string }>;
+            env_vars: Record<string, { value: string }>;
+          };
+        }
+      ).production;
+      expect(production.d1_databases.DB.id).toBe('11111111-2222-4333-8444-555555555555');
+      expect(production.env_vars.MAIL_DOMAIN.value).toBe('mail.example.com');
+      expect(production.env_vars.WEB_HOSTNAME.value).toBe('inbox.mail.example.com');
+    });
+
     it('lists and adds custom domain for project', async () => {
       let createdDomain: { name?: string } | null = null;
       const mockFetch = createMockFetch((url, opts) => {

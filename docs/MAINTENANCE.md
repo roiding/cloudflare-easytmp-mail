@@ -109,7 +109,7 @@ pnpm db:migrate:remote --apply
 
 1. **在 Cloudflare 添加新域名**：
    - 将 `newmail.com` 添加至 Cloudflare 账户，修改域名注册商的 NS 解析并激活。
-   - 在 `Email Routing` 界面开通邮件路由服务。
+   - 无需手工开通 Email Routing，`onboard --apply` 会自动完成。
 2. **修改根配置文件**：
    打开 [easytmp.config.json](../easytmp.config.json)，修改：
    ```json
@@ -126,7 +126,8 @@ pnpm db:migrate:remote --apply
    ```
    部署脚本将自动：
    - 在新 Zone 下创建对应的 D1/Pages 绑定。
-   - 配置新域名的 Email Routing Catch-all 规则。
+   - 将 D1 `DB`、`MAIL_DOMAIN` 和 `WEB_HOSTNAME` 写入 Pages 生产配置。
+   - 启用 Email Routing 并配置 Catch-all 规则。
    - 绑定并配置 `inbox.newmail.com` 的代理 CNAME。
 
 ---
@@ -140,6 +141,8 @@ pnpm db:migrate:remote --apply
 | **仅重新部署 Email Worker** | `pnpm deploy:worker --apply` | 用于 Inbound Worker 代码、DMARC 逻辑或清理策略变更 |
 | **仅重新部署 Pages 前端与 API** | `pnpm deploy:pages --apply` | 用于 Web UI 界面、样式或 Pages Functions (`/api/*`) 逻辑变更 |
 | **全系统自动化重新发布** | `pnpm onboard --apply` | 全链路重新构建、迁移、发布并执行冒烟测试 |
+
+> 新域名、新环境与日常重部署均使用 `pnpm onboard --apply`。`legacy:*` 命令只为 `cottage.dpdns.org` 历史迁移保留，脚本会拒绝其他域名。
 
 ---
 

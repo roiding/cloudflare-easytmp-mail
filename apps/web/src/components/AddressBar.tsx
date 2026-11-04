@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useClipboard } from '../hooks/useClipboard';
-import { MAIL_DOMAIN } from '@easytmp/shared';
 import { normalizeMailboxInput } from '../utils/mailbox';
 import { IconCheck, IconCopy, IconDice, IconEdit, IconRefresh, IconTrash } from './Icons';
 import { SwitchMailboxModal } from './SwitchMailboxModal';
@@ -8,6 +7,7 @@ import { SwitchMailboxModal } from './SwitchMailboxModal';
 interface AddressBarProps {
   name: string;
   address: string;
+  mailDomain: string;
   messagesCount: number;
   isLoading: boolean;
   onRefresh: () => Promise<void>;
@@ -19,6 +19,7 @@ interface AddressBarProps {
 export const AddressBar: React.FC<AddressBarProps> = ({
   name,
   address,
+  mailDomain,
   messagesCount,
   isLoading,
   onRefresh,
@@ -51,7 +52,7 @@ export const AddressBar: React.FC<AddressBarProps> = ({
       return;
     }
 
-    const validation = normalizeMailboxInput(trimmed);
+    const validation = normalizeMailboxInput(trimmed, mailDomain);
     if (!validation.valid || !validation.name) {
       setInputError(validation.error || '邮箱名不合法');
       return;
@@ -88,7 +89,7 @@ export const AddressBar: React.FC<AddressBarProps> = ({
                 data-testid="mailbox-input"
                 aria-label="邮箱名前缀"
               />
-              <span className="address-input-suffix">@{MAIL_DOMAIN}</span>
+              <span className="address-input-suffix">@{mailDomain}</span>
             </div>
 
             <div className="address-input-actions">
@@ -193,6 +194,7 @@ export const AddressBar: React.FC<AddressBarProps> = ({
 
       <SwitchMailboxModal
         currentAddress={address}
+        mailDomain={mailDomain}
         isOpen={isSwitchModalOpen}
         onClose={() => setIsSwitchModalOpen(false)}
         onSwitch={onSwitch}

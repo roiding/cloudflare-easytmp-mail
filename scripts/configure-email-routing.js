@@ -25,6 +25,8 @@ export async function configureEmailRouting({
   apply = false,
   targetWorker = DEFAULT_WORKER_NAME,
   mailDomain = EXPECTED_MAIL_DOMAIN,
+  zoneId = process.env.CLOUDFLARE_ZONE_ID,
+  ensureEnabled = false,
 } = {}) {
   validateMailDomain(mailDomain, 'configureEmailRouting');
 
@@ -32,21 +34,44 @@ export async function configureEmailRouting({
     client ||
     new CloudflareClient({
       apiToken: validateApiToken(process.env.CLOUDFLARE_API_TOKEN, 'configureEmailRouting'),
-      zoneId: validateZoneId(process.env.CLOUDFLARE_ZONE_ID, 'configureEmailRouting'),
+      zoneId: validateZoneId(zoneId, 'configureEmailRouting'),
       accountId: validateAccountId(process.env.CLOUDFLARE_ACCOUNT_ID, 'configureEmailRouting'),
     });
 
   console.log(`[email-routing] Verifying zone "${mailDomain}"...`);
-  const zoneInfo = await cfClient.verifyCottageZone();
+  const zoneInfo = await cfClient.verifyConfiguredZone(mailDomain);
   console.log(`[email-routing] Verified zone: ${zoneInfo.zoneName} (${zoneInfo.zoneId})`);
 
   console.log('[email-routing] Fetching Email Routing settings...');
-  const settings = await cfClient.getEmailRoutingSettings();
+  let settings;
+  if (ensureEnabled && apply) {
+    const routing = await cfClient.ensureEmailRoutingReady();
+    settings = routing.settings;
+    if (routing.enabled) {
+      console.log('[email-routing] [APPLY] Email Routing was enabled and is ready.');
+    }
+  } else {
+    settings = await cfClient.getEmailRoutingSettings();
+  }
   console.log(
     `[email-routing] Email Routing status: ${settings?.status || 'unknown'}, enabled: ${Boolean(
       settings?.enabled,
     )}`,
   );
+
+  if (
+    settings?.enabled !== true ||
+    (settings?.status !== undefined &&
+      settings.status !== 'ready' &&
+      settings.status !== 'configured')
+  ) {
+    // Enablement is exposed by the Dashboard/API zone lifecycle; failing here
+    // is safer than silently leaving an unreachable catch-all rule.
+    throw new Error(
+      `[EMAIL_ROUTING_NOT_READY] ${mailDomain} must have Email Routing enabled and ready ` +
+        `before deployment (current status: ${settings?.status || 'unknown'}).`,
+    );
+  }
 
   console.log(`[email-routing] Verifying target Worker script "${targetWorker}" in account...`);
   const workerMeta = await cfClient.getWorkerScript(targetWorker);

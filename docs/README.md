@@ -51,7 +51,7 @@ flowchart TD
    - 邮箱名永远不会过期；过期并被定期物理销毁的只有邮件数据。
 4. **单入口零配置部署**：
    - 核心预检命令为 `pnpm onboard`，默认只读、不写云端。
-   - 确认预检后运行 `pnpm onboard --apply`，自动执行 D1 迁移、Worker 部署、Email Routing Catch-all 规则配置、Pages 部署与自定义域名绑定。
+   - 确认预检后运行 `pnpm onboard --apply`，自动创建/复用 D1 与 Pages，写入 Pages 生产绑定，启用 Email Routing、部署 Worker、绑定自定义域名并等待 HTTPS 冒烟验收。
 5. **绝对零凭据暴露原则**：
    - 任何文档、日志、提示词与持久化配置文件中，严禁写入任何 OAuth Token、Refresh Token 或 Cloudflare API Token。
 
