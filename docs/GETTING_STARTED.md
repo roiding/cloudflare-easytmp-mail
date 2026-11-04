@@ -41,7 +41,7 @@ sequenceDiagram
 ### 第一步：克隆仓库与安装依赖
 
 ```sh
-git clone https://github.com/your-org/cloudflare-easytmp-mail.git
+git clone https://github.com/roiding/cloudflare-easytmp-mail.git
 cd cloudflare-easytmp-mail
 
 # 使用已锁定的依赖锁文件安装

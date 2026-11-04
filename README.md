@@ -61,7 +61,7 @@
 
 ```sh
 # 1. 克隆代码并安装依赖
-git clone https://github.com/your-org/cloudflare-easytmp-mail.git
+git clone https://github.com/roiding/cloudflare-easytmp-mail.git
 cd cloudflare-easytmp-mail
 pnpm install --frozen-lockfile
 
